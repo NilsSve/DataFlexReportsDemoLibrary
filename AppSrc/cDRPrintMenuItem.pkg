@@ -1,0 +1,43 @@
+Use cDRMenuItem.pkg
+Use DRLanguage.Inc
+
+{ ClassLibrary = Windows }
+Class cDRPrintMenuItem is a cDRMenuItem 
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psCaption to C_$DRPrintReport
+        Set psToolTip to C_$DRPrintTheReportToAPrinter
+        Set psDescription to C_$DRPrintTheCurrentReportToAPrinter
+        Set psImage to "DRPrint.ico"
+    End_Procedure
+    
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowPrintButton = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowPrintButton
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowPrintButton of hoReport to bPreviewerShowPrintButton
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+        
+        Function_Return bPreviewerShowPrintButton
+    End_Function
+
+    Procedure OnExecute Variant vCommandBarControl
+        Handle hoReport
+
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Send PrintReport of hoReport 0
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+    End_Procedure
+End_Class

@@ -1,0 +1,45 @@
+Use cDRMenuItem.pkg
+Use DRLanguage.Inc
+
+{ ClassLibrary = Windows }
+Class cDRRefreshMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psCaption to C_$DRRefresh
+        Set psDescription to C_$DRRefreshTheReport
+        Set psToolTip to C_$DRRefreshTheCurrentReport
+        Set psImage to "DRRefresh.Ico"
+        Set pbControlBeginGroup to True
+    End_Procedure
+    
+    { Visibility = Private }
+    { Description = "Hides the control when bbPreviewerShowRefreshButton = false." }
+    { Description += " When false also removes the active update which means it does not get called over and over again." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowRefreshButton
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowRefreshButton of hoReport to bPreviewerShowRefreshButton            
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+        
+        Function_Return bPreviewerShowRefreshButton
+    End_Function
+
+    Procedure OnExecute Variant vCommandBarControl
+        Handle hoReport
+
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Send RefreshReport of hoReport
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+    End_Procedure
+End_Class

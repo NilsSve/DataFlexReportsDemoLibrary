@@ -1,0 +1,51 @@
+Use cDRMenuItem.pkg
+
+Class cDRGroupTreeLocationMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        { InitialValue = C_DR_GROUPTREE_NONE }
+        { EnumList = "C_DR_GROUPTREE_NONE, C_DR_GROUPTREE_LEFT, C_DR_GROUPTREE_RIGHT" }
+        Property Integer peGroupTreeLocation 
+    End_Procedure
+    
+    { Description = "Place a checkbox marker for the current group tree location menu item by comparing the peGroupTreeLocation settings" }
+    Function IsChecked Returns Boolean
+        Handle hoReport
+        Integer eCurrentGroupTreeLocation eGroupTreeLocation
+        Boolean bChecked
+        
+        Get ReportObject to hoReport
+        If (hoReport <> 0) Begin
+            Get peGroupTreeLocation of hoReport to eCurrentGroupTreeLocation
+            Get peGroupTreeLocation to eGroupTreeLocation
+            Move (eGroupTreeLocation = eCurrentGroupTreeLocation) to bChecked
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportObject
+        End
+        
+        Function_Return bChecked
+    End_Function
+    
+    { Description = "Change the current grouptree location of the report when it is not the same and update the preview window" }
+    Procedure OnExecute Variant vCommandBarControl
+        Handle hoReport
+        Integer eCurrentGroupTreeLocation eGroupTreeLocation
+        
+        Get ReportObject to hoReport
+        If (hoReport <> 0) Begin
+            Get peGroupTreeLocation of hoReport to eCurrentGroupTreeLocation
+            Get peGroupTreeLocation to eGroupTreeLocation
+            
+            If (eGroupTreeLocation <> eCurrentGroupTreeLocation) Begin
+                Set peGroupTreeLocation of hoReport to eGroupTreeLocation
+                Send HandleGroupTreeStatus
+                Send UpdateViewer            
+            End
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportObject
+        End
+    End_Procedure
+End_Class

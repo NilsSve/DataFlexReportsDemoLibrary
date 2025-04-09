@@ -1,0 +1,246 @@
+Use cDRMenuItem.pkg
+
+{ ClassLibrary = Windows }
+Class cDRCurrentPageMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Set peControlType to xtpControlEdit
+    End_Procedure
+
+    { Visibility = Private }
+    Function CorrectPageRange Integer iPage Returns Integer
+        Handle hoReport
+        Integer iMaxPage
+
+        Get ReportObject to hoReport
+        Get ReportPageCount of hoReport to iMaxPage
+        Move ((1 max iPage) min iMaxPage) to iPage
+
+        Function_Return iPage
+    End_Function
+
+    Procedure ChangeControlClass Integer eNewControlType
+        Boolean bCreated bBeginGroup bCloseSubMenuOnClick bControlFound
+        Integer eControlType iClass eStyle eFlags iId iItems iItem
+        Handle hoControl hoCommandBarControls
+        Variant vControl vItem vCommandBarControl vCommandBarControls
+        String sCaption
+
+        Get IsComObjectCreated to bCreated
+        If (bCreated) Begin
+            Get peControlType to eControlType
+            If (eControlType <> eNewControlType) Begin
+                Get CreateFirstProxyControl to hoControl
+                If (hoControl > 0) Begin
+                    Get ComControls to vCommandBarControls
+                    If (not (IsNullComObject (vCommandBarControls))) Begin
+                        Get ClassForControlType eNewControlType to iClass
+                        // Find insertion point for new control, same as old control
+                        Get Create (RefClass (cCJCommandBarControls)) to hoCommandBarControls
+                        Set pvComObject of hoCommandBarControls to vCommandBarControls
+                        Get pvComObject of hoControl to vControl
+                        Get ComCount of hoCommandBarControls to iItems
+                        Move 0 to iItem
+                        Repeat
+                            Increment iItem
+                            Get ComItem of hoCommandBarControls iItem to vItem
+                            If (IsSameComObject (vItem, vControl)) Begin
+                                Move True to bControlFound
+                            End
+                        Until (bControlFound or iItem > iItems)
+                        // Copy the properties of the old control
+                        Get ComStyle of hoControl to eStyle
+                        Get piId of hoControl to iId
+                        Get ComBeginGroup of hoControl to bBeginGroup
+                        Get ComCloseSubMenuOnClick of hoControl to bCloseSubMenuOnClick
+                        Get ComFlags of hoControl to eFlags
+                        Get ComCaption of hoControl to sCaption
+                        // Remove the old control
+                        Send ComDelete of hoControl
+                        Set pvComObject of hoControl to (NullComObject ())
+                        // Add a new control to the collection
+                        Get ComAdd of hoCommandBarControls eNewControlType iId sCaption iItem False to vCommandBarControl
+                        Send Destroy of hoCommandBarControls
+                        // Create a new DataFlex object
+                        Send Destroy of hoControl
+                        Get Create iClass to hoControl
+                        Set pvComObject of hoControl to vCommandBarControl
+                        // Set the copied properties
+                        Set ComStyle of hoControl to eStyle
+                        Set ComBeginGroup of hoControl to bBeginGroup
+                        Set ComCloseSubMenuOnClick of hoControl to bCloseSubMenuOnClick
+                        Set ComFlags of hoControl to eFlags
+                        Set peControlType to eNewControlType
+                        Send OnCreateControl hoControl
+                    End
+                    Send Destroy of hoControl
+                End
+            End
+        End
+    End_Procedure
+
+    Procedure OnChange
+        Boolean bCreated
+        Integer eControlType iPage
+        Handle hoControl hoReport
+
+        Get IsComObjectCreated to bCreated
+        If (bCreated) Begin
+            Get peControlType to eControlType
+            If (eControlType = xtpControlEdit) Begin
+                Get CreateFirstProxyControl to hoControl
+                Get ComText of hoControl to iPage
+                Get CorrectPageRange iPage to iPage
+                Set ComText of hoControl to iPage
+                Get ReportObject to hoReport
+                Set piPreviewCurrentPage of hoReport to iPage
+            End
+        End
+    End_Procedure
+
+    Procedure OnCreateControl Handle hoControl
+        Integer eControlType iTextSize
+        String sCaption
+
+        Forward Send OnCreateControl hoControl
+
+        Get peControlType to eControlType
+        Case Begin
+            Case (eControlType = xtpControlComboBox)
+                Set ComCaption of hoControl to ""
+                Set ComStyle of hoControl to xtpButtonAutomatic
+                Case Break
+            Case (eControlType = xtpControlEdit)
+                Set ComCaption of hoControl to C_$DRPage
+                Set ComStyle of hoControl to xtpButtonCaption
+                Set ComText of hoControl to 0
+                Get Text_Extent C_$DRPage to iTextSize
+                Set ComWidth of hoControl to (Low (iTextSize) + ((GetSystemMetrics(SM_CXSMICON) / 16.0) * 50))
+                Set ComShowSpinButtons of hoControl to True
+                Set ComEditStyle of hoControl to xtpEditStyleRight
+                Case Break
+        Case End
+    End_Procedure
+
+    Procedure OnExecute Variant vCommandBarControl
+        Boolean bCreated
+        Integer eControlType iPage iMaxPage
+        Handle hoControl hoReport
+        String sText
+
+        Get IsComObjectCreated to bCreated
+        If (bCreated) Begin
+            Get CreateProxyControl vCommandBarControl to hoControl
+            If (hoControl <> 0) Begin
+                Get peControlType to eControlType
+                Case Begin
+                    Case (eControlType = xtpControlComboBox)
+                        Get ComListIndex of hoControl to iPage
+                        Case Break
+                    Case (eControlType = xtpControlEdit)
+                        Get ComText of hoControl to sText
+                        Get ToInteger sText to iPage
+                        Case Break
+                Case End
+                Send Destroy of hoControl
+
+                Get CorrectPageRange iPage to iPage
+
+                If (eControlType = xtpControlEdit) Begin
+                    Set psText to iPage
+                End
+                Get ReportObject to hoReport
+                Set piPreviewCurrentPage of hoReport to iPage
+            End
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowCurrentPage = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowCurrentPage
+
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowCurrentPage of hoReport to bPreviewerShowCurrentPage
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+
+        Function_Return bPreviewerShowCurrentPage
+    End_Function
+
+    Procedure Set psText String sText
+        Boolean bCreated
+        String sCaption
+        Integer eControlType iCaptionSize iTextSize iSpinButtonWidth
+        Handle hoControl
+
+        Get IsComObjectCreated to bCreated
+        If (bCreated) Begin
+            Get CreateFirstProxyControl to hoControl
+            If (hoControl > 0) Begin
+                Get peControlType to eControlType
+                Case Begin
+                    Case (eControlType = xtpControlComboBox)
+                        Set ComListIndex of hoControl to (Cast (sText, Integer))
+                        Case Break
+                    Case (eControlType = xtpControlEdit)
+                        Set ComText of hoControl to sText
+                        Get ComCaption of hoControl to sCaption
+                        Get Text_Extent sCaption to iCaptionSize
+                        Get Text_Extent sText to iTextSize
+                        Move ((GetSystemMetrics(SM_CXSMICON) / 16.0) * 50) to iSpinButtonWidth
+                        Set ComWidth of hoControl to (Low (iCaptionSize) + Low (iTextSize) + iSpinButtonWidth)
+                        Case Break
+                Case End
+                Send Destroy of hoControl
+            End
+        End
+    End_Procedure
+
+    Procedure AddPages
+        Integer eControlType iPages iPage
+        Handle hoCombo hoReport
+        Boolean bCreated
+
+        Get peControlType to eControlType
+        If (eControlType = xtpControlComboBox) Begin
+            Get CreateFirstProxyControl to hoCombo
+            If (hoCombo > 0) Begin
+                Send ComClear of hoCombo
+
+                Get ReportObject to hoReport
+                If (hoReport <> 0) Begin
+                    Get IsComObjectCreated of hoReport to bCreated
+                    If (bCreated) Begin
+                        Get ReportPageCount of hoReport to iPages
+
+                        For iPage from 1 to iPages
+                            Send ComAddItem of hoCombo ("Page" * String (iPage)) iPage
+                        Loop
+
+                        Set piPreviewCurrentPage of hoReport to 1
+                    End
+                End
+
+                Set ComListIndex of hoCombo to 1
+                Set ComWidth of hoCombo to 100
+                Send Destroy of hoCombo
+            End
+        End
+    End_Procedure
+
+    Procedure ChangeListIndex Integer iPage
+        Handle hoCombo
+
+        Get CreateFirstProxyControl to hoCombo
+        If (hoCombo > 0) Begin
+            Set ComListIndex of hoCombo to iPage
+            Send Destroy of hoCombo
+        End
+    End_Procedure
+End_Class

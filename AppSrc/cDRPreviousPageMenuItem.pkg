@@ -1,0 +1,44 @@
+Use cDRMenuItem.pkg
+Use DRLanguage.Inc
+
+{ ClassLibrary = Windows }
+Class cDRPreviousPageMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psCaption to C_$DRPreviousPage
+        Set psToolTip to C_$DRGoToThePreviousPage
+        Set psDescription to C_$DRJumpsToThePreviousPageOfTheReport
+        Set psShortcut to C_$DRPageUpShortCut
+        Set psImage to "DRPreviousPage.ico"
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowPreviousPageButton = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowPreviousPageButton
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowPreviousPageButton of hoReport to bPreviewerShowPreviousPageButton
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+        
+        Function_Return bPreviewerShowPreviousPageButton
+    End_Function
+    
+    Procedure OnExecute Variant vCommandBarControl
+        Handle hoReport
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Send PreviewPreviousPage of hoReport
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+    End_Procedure
+End_Class

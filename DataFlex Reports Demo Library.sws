@@ -1,0 +1,7 @@
+[Properties]
+Version=25.0
+HideSystemClasses=false
+[WorkspacePaths]
+ConfigFile=.\Programs\Config.ws
+
+

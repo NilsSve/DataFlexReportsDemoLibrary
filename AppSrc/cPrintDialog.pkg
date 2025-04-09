@@ -1,0 +1,1694 @@
+﻿Use cPrintDialog.h.pkg
+Use GlobalFunctionsProcedures.pkg
+Use tPrinter_Info_2.pkg
+
+External_Function DR_WinAPI_OpenPrinter "OpenPrinterW" WinSpool.Drv Pointer pPrinterName Pointer hPrinter Pointer pDefault Returns Integer
+External_Function DR_WinAPI_ClosePrinter "ClosePrinter" WinSpool.Drv Pointer hPrinter Returns Integer
+External_Function DR_WinAPI_GetPrinter "GetPrinterW" WinSpool.Drv Pointer hPrinter Integer Level Pointer pPrinter Integer cbBuf Pointer pcbNeeded Returns Integer
+External_Function DR_WinAPI_GetDefaultPrinter "GetDefaultPrinterW" Winspool.Drv Address pszBuffer UInteger pcchBuffer Returns Boolean
+
+{ ClassLibrary = Common }
+Class cPrintDialog is a cObject
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        { Visibility = Private }
+        Property tPrintDialogDevModeData private_pPrintDialogDevMode
+        { Visibility = Private }
+        Property tPrintDialogDevNameData private_pPrintDialogDevNames
+
+        // Initializes the
+        Send InitPrintDialogData
+
+        // Private properties
+        { DesignTime = False }
+        Property Handle phDevMode
+        { DesignTime = False }
+        Property Handle phDevNames
+        { DesignTime = False }
+        Property Handle phPrintDlg // Address of print
+        { DesignTime = False }
+        Property Handle phPageRanges
+        { DesignTime = False }
+        Property Boolean pbDefaultPrinterSelected
+
+        // PRINTDLGEX properties
+        { Category = "PrintDlgEx" }
+        Property UInteger piMaxPageRanges 10 // Normally this should be enough
+        { Category = "PrintDlgEx" }
+        { Visibility = Private }
+        Property PRINTPAGERANGE[] pPageRanges
+        { Category = "PrintDlgEx" }
+        Property Handle phDC // Handle to the device context
+        { Category = "PrintDlgEx" }
+        Property UInteger piFlags (PD_NOPAGENUMS ior PD_NOSELECTION ior PD_USEDEVMODECOPIES)
+        { Category = "PrintDlgEx" }
+        Property UInteger piMinPage 1
+        { Category = "PrintDlgEx" }
+        Property UInteger piMaxPage 999999
+    End_Procedure
+
+    { Description = "Copies the information from the page ranges array to the properties in the PRINTDLGEX structure" }
+    { Visibility = Private }
+    Procedure CopyPageRangeInfo PRINTDLGEXW ByRef pd
+        Integer iPageRangeElements iPageRangeElement iMaxPage iMinPage iResult
+        Handle hPageRanges
+        PRINTPAGERANGE[] PageRanges
+
+        Get piMaxPageRanges to pd.nMaxPageRanges
+        If (pd.nMaxPageRanges <= 0) Begin
+            Move 10 to pd.nMaxPageRanges
+            Set piMaxPageRanges to 10
+        End
+        Get phPageRanges to hPageRanges
+        If (hPageRanges <> 0) Begin
+            Move (GlobalFree (hPageRanges)) to iResult
+            Set phPageRanges to 0
+        End
+        Get pPageRanges to PageRanges
+        Move (SizeOfArray (PageRanges)) to pd.nPageRanges
+        If (pd.nPageRanges > 0) Begin
+            Move (GlobalAlloc (GPTR, pd.nPageRanges * SizeOfType (PRINTPAGERANGE))) to hPageRanges
+            If (hPageRanges = 0) Begin
+                Move (ShowLastError ()) to iResult
+                Move 0 to pd.nPageRanges
+                Move 0 to pd.lpPageRanges
+            End
+            Else Begin
+                Move 99999 to iMinPage
+                // Loop through passed page range elements to find the min and max page values.
+                Move (pd.nPageRanges - 1) to iPageRangeElements
+                For iPageRangeElement from 0 to iPageRangeElements
+                    Move (iMinPage min PageRanges[iPageRangeElement].nFromPage) to iMinPage
+                    Move (iMaxPage max PageRanges[iPageRangeElement].nToPage) to iMaxPage
+                Loop
+
+                Set piMaxPage to iMaxPage
+                Set piMinPage to iMinPage
+
+                Move (CopyMemory (hPageRanges, AddressOf (PageRanges), pd.nPageRanges * SizeOfType (PRINTPAGERANGE))) to iResult
+                Move hPageRanges to pd.lpPageRanges
+                Set phPageRanges to hPageRanges
+            End
+        End
+    End_Procedure
+
+    { Description = "Returns the name of the default printer" }
+    Function DefaultPrinter Returns String
+        WString wPrinterName
+        Integer iBufferSize
+        Boolean bSuccess
+
+        Move 0 to iBufferSize
+        Move (DR_WinAPI_GetDefaultPrinter (0, AddressOf (iBufferSize))) to bSuccess
+        If (not (bSuccess)) Begin
+            Move (ZeroString (iBufferSize)) to wPrinterName
+            Move (DR_WinAPI_GetDefaultPrinter (AddressOf (wPrinterName), AddressOf (iBufferSize))) to bSuccess
+        End
+
+        Function_Return wPrinterName
+    End_Function
+
+    { Description = "While destroying the object release the memory globally allocated" }
+    Procedure Destroy_Object
+        Send FreeAllocatedGlobalMemory
+
+        Forward Send Destroy_Object
+    End_Procedure
+
+    { Description = "Attempt to read devmode data from a given printer. This is needed to support psPrinterName." }
+    Function DRPrinterDevMode String sPrinterName Returns Boolean
+        Handle hPrinter hDevMode hPrintDlg hDevNames
+        Pointer pDevMode pData
+        Integer iResult cbNeeded iBytes iFlags
+        Boolean bPrinterDataRead
+        WString wPrinterName wName
+        tPrinter_Info_2 PrinterInfo
+        DEVMODEW PrinterInfoDevMode
+        PRINTDLGEXW pd
+
+        If (sPrinterName <> "") Begin
+            // Free previously allocated memory
+            Send FreeAllocatedGlobalMemory
+
+            Move 0 to hPrinter
+            Move sPrinterName to wPrinterName
+            Move (DR_WinAPI_OpenPrinter (AddressOf (wPrinterName), AddressOf (hPrinter), 0)) to iResult
+            If (iResult <> 0) Begin
+                Move 0 to cbNeeded
+                Move (DR_WinAPI_GetPrinter (hPrinter, 2, 0, 0, AddressOf (cbNeeded))) to iResult
+                If (iResult = 0) Begin
+                    Move (Alloc (cbNeeded)) to pData
+                    Move (DR_WinAPI_GetPrinter (hPrinter, 2, pData, cbNeeded, AddressOf (cbNeeded))) to iResult
+                    If (iResult <> 0) Begin
+                        Move (CopyMemory (AddressOf (PrinterInfo), pData, SizeOfType (tPrinter_Info_2))) to iResult
+                        Move (CopyMemory (AddressOf (PrinterInfoDevMode), PrinterInfo.pDevMode, SizeOfType (DEVMODEW))) to iResult
+                        Send ReadDevModeData PrinterInfoDevMode
+                        Move (PrinterInfoDevMode.dmSize + PrinterInfoDevMode.dmDriverExtra) to iBytes
+
+                        // Allocate memory for the extended DEVMODE structure
+                        Move (GlobalAlloc (GMEM_MOVEABLE, iBytes)) to hDevmode
+                        If (hDevmode = 0) Begin
+                            Move (Free (pData)) to iResult
+                            Function_Return False
+                        End
+
+                        // Lock allocated memory
+                        Move (GlobalLock (hDevmode)) to pDevmode
+                        If (pDevmode = 0) Begin
+                            Move (Free (pData)) to iResult
+                            Move (GlobalFree (hDevmode)) to iResult
+                            Function_Return False
+                        End
+
+                        Move (CopyMemory (pDevMode, PrinterInfo.pDevMode, iBytes)) to iResult
+
+                        // Should be done after the devmode handling as the devmode information can contain wrong information
+                        Move (PointerToWString (PrinterInfo.pPrinterName)) to wName
+                        Set psDeviceName to wName
+                        Move (PointerToWString (PrinterInfo.pPortName)) to wName
+                        Set psOutputName to wName
+                        Move (PointerToWString (PrinterInfo.pDriverName)) to wName
+                        Set psDriverName to wName
+
+                        // Free previously allocated memory
+                        Get phPrintDlg to hPrintDlg
+                        If (hPrintDlg <> 0) Begin
+                            Move (GlobalFree (hPrintDlg)) to iResult
+                            Set phPrintDlg to 0
+                        End
+
+                        // Allocate memory for PRINTDLGEXW structure
+                        Move (GlobalAlloc (GPTR, SizeOfType (PRINTDLGEXW))) to hPrintDlg
+                        If (hPrintDlg = 0) Begin
+                            Move (Free (pData)) to iResult
+                            If (pDevMode <> 0) Begin
+                                Move (GlobalUnlock (hDevMode)) to iResult
+                            End
+                            Move (GlobalFree (hDevmode)) to iResult
+                            Function_Return False
+                        End
+
+                        Get piFlags to iFlags
+
+                        // Return the printer device context
+                        Move (iFlags ior PD_RETURNDC) to iFlags
+
+                        // Filter unsupported flags
+                        If (IsFlagIn (PD_ENABLEPRINTTEMPLATE, iFlags)) Begin
+                            Move (iFlags - PD_ENABLEPRINTTEMPLATE) to iFlags
+                        End
+                        If (IsFlagIn (PD_ENABLEPRINTTEMPLATEHANDLE, iFlags)) Begin
+                            Move (iFlags - PD_ENABLEPRINTTEMPLATEHANDLE) to iFlags
+                        End
+                        If (IsFlagIn (PD_USELARGETEMPLATE, iFlags)) Begin
+                            Move (iFlags - PD_USELARGETEMPLATE) to iFlags
+                        End
+
+                        Move (SizeOfType (PRINTDLGEXW)) to pd.lStructSize
+                        Get OwnerHandle to pd.hwndOwner
+                        Move hDevMode to pd.hDevMode
+                        Get InitDevNames to hDevNames
+                        If (hDevNames <> -1) Begin
+                            Move hDevNames to pd.hDevNames
+                        End
+                        Move iFlags to pd.Flags
+                        Get piMinPage to pd.nMinPage
+                        Get piMaxPage to pd.nMaxPage
+                        Get piCopies to pd.nCopies
+                        Move START_PAGE_GENERAL to pd.nStartPage
+
+                        // Copy the data from the pd Structure onto the locked memory retrieved before
+                        Move (CopyMemory (hPrintDlg, AddressOf (pd), SizeOfType (PRINTDLGEXW))) to iResult
+                        Set phPrintDlg to hPrintDlg
+
+                        // Release the memory lock and copy the handle to the phDevMode property
+                        Move (GlobalUnlock (hDevmode)) to iResult
+                        Set phDevMode to hDevmode
+
+                        Move True to bPrinterDataRead
+                    End
+                    Move (Free (pData)) to iResult
+                End
+                Move (DR_WinAPI_ClosePrinter (hPrinter)) to iResult
+            End
+        End
+
+        Function_Return bPrinterDataRead
+    End_Function
+
+    { Visibility = Private }
+    { MethodType = Method }
+    { Description = "Frees all globally allocated memory related to the print dialog. Called during object destruction" }
+    Procedure FreeAllocatedGlobalMemory
+        Handle hDevMode hDevNames hPrintDlg hPageRanges
+        Integer iResult
+
+        Get phDevMode to hDevMode
+        If (hDevMode <> 0) Begin
+            Move (GlobalFree (hDevMode)) to iResult
+            Set phDevMode to 0
+        End
+
+        Get phDevNames to hDevNames
+        If (hDevNames <> 0) Begin
+            Move (GlobalFree (hDevNames)) to iResult
+            Set phDevNames to 0
+        End
+
+        Get phPrintDlg to hPrintDlg
+        If (hPrintDlg <> 0) Begin
+            Move (GlobalFree (hPrintDlg)) to iResult
+            Set phPrintDlg to 0
+        End
+
+        Get phPageRanges to hPageRanges
+        If (hPageRanges <> 0) Begin
+            Move (GlobalFree (hPageRanges)) to iResult
+            Set phPageRanges to 0
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Initializes the private DEVMODE structure." }
+    { Description = "Set changed state members so that values are copied but do not set the overall changed state" }
+    Procedure InitPrintDialogData
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Move DM_SPECVERSION to PrintDialogDevMode.dmSpecVersion
+        Move True to PrintDialogDevMode.bSpecVersionChanged
+
+        Move 1 to PrintDialogDevMode.dmCopies
+        Move True to PrintDialogDevMode.bCopiesChanged
+
+        Set private_pPrintDialogDevMode to PrintDialogDevMode
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Initializes the DEVMODE structure and returns handle" }
+    Function InitDevMode Returns Handle
+        Pointer pDevmode
+        Handle hDevmode
+        Integer iResult iFlags
+        DEVMODEW dm
+        tPrintDialogDevNameData PrintDialogDevNames
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        // Clear error
+        Move (SetLastError(0)) to iResult
+
+        // Free previously allocated memory
+        Get phDevMode to hDevmode
+        If (hDevmode <> 0) Begin
+            Move (GlobalFree (hDevmode)) to iResult
+            Set phDevMode to 0
+        End
+
+        // Retrieve the private structure to find out if the device name was changed by program logic
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+        If (PrintDialogDevNames.bChanged and PrintDialogDevNames.bDeviceNameChanged) Begin
+            Get StringToShortArray PrintDialogDevNames.sDeviceName CCHDEVICENAME to dm.dmDeviceName
+        End
+
+        // Retrieve the private structure to find out if the device name was changed by program logic
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        Get piFlags to iFlags
+        If (PrintDialogDevMode.bChanged or ((PrintDialogDevMode.bCopiesChanged or PrintDialogDevMode.bCollateChanged) and IsFlagIn (PD_USEDEVMODECOPIES, iFlags))) Begin
+            Move (SizeOfType (DEVMODEW)) to dm.dmSize
+
+            If (PrintDialogDevMode.bSpecVersionChanged) Begin
+                Move PrintDialogDevMode.dmSpecVersion to dm.dmSpecVersion
+            End
+
+            If (PrintDialogDevMode.bOrientationChanged) Begin
+                Move PrintDialogDevMode.dmOrientation to dm.dmOrientation
+                If (dm.dmOrientation <> 0) Begin
+                    Move (dm.dmFields ior DM_ORIENTATION) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bPaperSizeChanged) Begin
+                Move PrintDialogDevMode.dmPaperSize to dm.dmPaperSize
+                If (dm.dmPaperSize <> 0) Begin
+                    Move (dm.dmFields ior DM_PAPERSIZE) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bPaperLengthChanged) Begin
+                Move PrintDialogDevMode.dmPaperLength to dm.dmPaperLength
+                If (dm.dmPaperLength <> 0) Begin
+                    Move (dm.dmFields ior DM_PAPERLENGTH) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bPaperWidthChanged) Begin
+                Move PrintDialogDevMode.dmPaperWidth to dm.dmPaperWidth
+                If (dm.dmPaperWidth <> 0) Begin
+                    Move (dm.dmFields ior DM_PAPERWIDTH) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bScaleChanged) Begin
+                Move PrintDialogDevMode.dmScale to dm.dmScale
+                If (dm.dmScale <> 0) Begin
+                    Move (dm.dmFields ior DM_SCALE) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bCopiesChanged) Begin
+                Move PrintDialogDevMode.dmCopies to dm.dmCopies
+                If (dm.dmCopies <> 0) Begin
+                    Move (dm.dmFields ior DM_COPIES) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bDefaultSourceChanged) Begin
+                Move PrintDialogDevMode.dmDefaultSource to dm.dmDefaultSource
+                If (dm.dmDefaultSource <> 0) Begin
+                    Move (dm.dmFields ior DM_DEFAULTSOURCE) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bPrintQualityChanged) Begin
+                Move PrintDialogDevMode.dmPrintQuality to dm.dmPrintQuality
+                If (dm.dmPrintQuality <> 0) Begin
+                    Move (dm.dmFields ior DM_PRINTQUALITY) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bColorChanged) Begin
+                Move PrintDialogDevMode.dmColor to dm.dmColor
+                If (dm.dmColor <> 0) Begin
+                    Move (dm.dmFields ior DM_COLOR) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bDuplexChanged) Begin
+                Move PrintDialogDevMode.dmDuplex to dm.dmDuplex
+                If (dm.dmDuplex <> 0) Begin
+                    Move (dm.dmFields ior DM_DUPLEX) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bYResolutionChanged) Begin
+                Move PrintDialogDevMode.dmYResolution to dm.dmYResolution
+                If (dm.dmYResolution <> 0) Begin
+                    Move (dm.dmFields ior DM_YRESOLUTION) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bTTOptionChanged) Begin
+                Move PrintDialogDevMode.dmTTOption to dm.dmTTOption
+                If (dm.dmTTOption <> 0) Begin
+                    Move (dm.dmFields ior DM_TTOPTION) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bFormNameChanged) Begin
+                If (PrintDialogDevMode.dmFormName <> "") Begin
+                    Get StringToShortArray PrintDialogDevMode.dmFormName CCHFORMNAME to dm.dmFormName
+                    Move (dm.dmFields ior DM_FORMNAME) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bCollateChanged) Begin
+                Move PrintDialogDevMode.dmCollate to dm.dmCollate
+                If (dm.dmCollate <> 0) Begin
+                    Move (dm.dmFields ior DM_COLLATE) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bNupChanged) Begin
+                Move PrintDialogDevMode.dmNup to dm.dmNup
+                If (dm.dmNup <> 0) Begin
+                    Move (dm.dmFields ior DM_NUP) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bICMMethodChanged) Begin
+                Move PrintDialogDevMode.dmICMMethod to dm.dmICMMethod
+                If (dm.dmICMMethod <> 0) Begin
+                    Move (dm.dmFields ior DM_ICMMETHOD) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bICMIntentChanged) Begin
+                Move PrintDialogDevMode.dmICMIntent to dm.dmICMIntent
+                If (dm.dmICMIntent <> 0) Begin
+                    Move (dm.dmFields ior DM_ICMINTENT) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bMediaTypeChanged) Begin
+                Move PrintDialogDevMode.dmMediaType to dm.dmMediaType
+                If (dm.dmMediaType <> 0) Begin
+                    Move (dm.dmFields ior DM_MEDIATYPE) to dm.dmFields
+                End
+            End
+
+            If (PrintDialogDevMode.bDitherTypeChanged) Begin
+                Move PrintDialogDevMode.dmDitherType to dm.dmDitherType
+                If (dm.dmDitherType <> 0) Begin
+                    Move (dm.dmFields ior DM_DITHERTYPE) to dm.dmFields
+                End
+            End
+
+            // Allocate memory for DEVMODE structure
+            Move (GlobalAlloc (GHND, SizeOfType (DEVMODEW))) to hDevmode
+            If (hDevmode = 0) Begin
+                Move (ShowLastError ()) to iResult
+                Function_Return -1
+            End
+
+            // Lock allocated memory
+            Move (GlobalLock (hDevmode)) to pDevmode
+            If (pDevmode = 0) Begin
+                Move (ShowLastError ()) to iResult
+                Move (GlobalFree (hDevmode)) to iResult
+                Function_Return -1
+            End
+
+            // Copy the DEVMODE structure and unlock memory
+            Move (CopyMemory (pDevmode, AddressOf (dm), SizeOfType (DEVMODEW))) to iResult
+            Move (GlobalUnlock (hDevmode)) to iResult
+        End
+
+        // Store the memory handle
+        Set phDevMode to hDevmode
+
+        Function_Return hDevmode
+    End_Function
+
+    { Description = "Initializes the DEVNAMES structure and returns handle" }
+    { Visibility = Private }
+    Function InitDevNames Returns Handle
+        String sDriverName sDeviceName sOutputName sDefaultPrinter
+        WString wDriverName wDeviceName wOutputName
+        Integer iResult iSize iBytes iMemorySize
+        Pointer pDevNames
+        Handle hDevNames
+        DEVNAMES dn
+        tPrintDialogDevNameData PrintDialogDevNames
+
+        // Clear error
+        Move (SetLastError(0)) to iResult
+
+        // Free previously allocated memory
+        Get phDevNames to hDevNames
+        If (hDevNames) Begin
+            Move (GlobalFree (hDevNames)) to iResult
+            Set phDevNames to 0
+        End
+
+        // Retrieve the private structure to find out if the device name was changed by program logic
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+        If (PrintDialogDevNames.bChanged) Begin
+            If (PrintDialogDevNames.bDriverNameChanged) Begin
+                // Value need to be a WSTRING
+                Move PrintDialogDevNames.sDriverName to wDriverName
+            End
+            If (PrintDialogDevNames.bDeviceNameChanged) Begin
+                // Value need to be a WSTRING
+                Move PrintDialogDevNames.sDeviceName to wDeviceName
+            End
+            If (PrintDialogDevNames.bOutputNameChanged) Begin
+                // Value need to be a WSTRING
+                Move PrintDialogDevNames.sOutputName to wOutputName
+            End
+
+            Move ((SizeOfWString (wDriverName) * 2) + (SizeOfWString (wDeviceName) * 2) + (SizeOfWString (wOutputName) * 2)) to iMemorySize
+            Move (SizeOfType (DEVNAMES)) to iSize
+            Move (iSize + iMemorySize + 6) to iMemorySize // at 6 bytes for \0 space
+
+            // Allocate memory for DEVNAMES structure
+            Move (GlobalAlloc (GHND, iMemorySize)) to hDevNames
+            If (hDevNames = 0) Begin
+                Move (ShowLastError ()) to iResult
+                Function_Return -1
+            End
+
+            // Lock allocated memory
+            Move (GlobalLock (hDevNames)) to pDevNames
+            If (pDevNames = 0) Begin
+                Move (ShowLastError ()) to iResult
+                Move (GlobalFree (hDevNames)) to iResult
+                Function_Return -1
+            End
+
+            // Copy the driver, device and output names in the extension of the struct            
+            Move (iSize / 2) to dn.wDriverOffset // wDriverOffset is offset in characters
+            Move (SizeOfWString (wDriverName) * 2) to iBytes
+            If (iBytes > 0) Begin
+                Move (CopyMemory (pDevNames + iSize, AddressOf (wDriverName), iBytes)) to iResult
+            End
+
+            Move (iSize + iBytes + 2) to iSize // This is in bytes
+            Move (dn.wDriverOffset + SizeOfWString (wDriverName) + 1) to dn.wDeviceOffset // This is in code units
+            Move (SizeOfWString (wDeviceName) * 2) to iBytes
+            If (iBytes > 0) Begin
+                Move (CopyMemory (pDevNames + iSize, AddressOf (wDeviceName), iBytes)) to iResult
+            End
+
+            Move (iSize + iBytes + 2) to iSize
+            Move (dn.wDeviceOffset + SizeOfWString (wDeviceName) + 1) to dn.wOutputOffset
+            Move (SizeOfWString (wOutputName) * 2) to iBytes
+            If (iBytes > 0) Begin
+                Move (CopyMemory (pDevNames + iSize, AddressOf (wOutputName), iBytes)) to iResult
+            End
+
+            Get DefaultPrinter to sDefaultPrinter
+            Move wDeviceName to sDeviceName
+            Move (sDefaultPrinter = sDeviceName) to dn.wDefault
+
+            // Copy the DEVNAMES structure part over the allocated memory and then unlock memory
+            Move (CopyMemory (pDevNames, AddressOf (dn), SizeOfType (DEVNAMES))) to iResult
+            Move (GlobalUnlock (hDevNames)) to iResult
+        End
+
+        // Store the memory handle
+        Set phDevNames to hDevNames
+
+        Function_Return hDevNames
+    End_Function
+
+    { Description = "Initializes the PAGERANGES structure in case the developer did not do that to avoid" }
+    { Description = "a 0x80070057 (Invalid Parameter) error if the flag PD_NOPAGENUMS is not set" }
+    { Description = "Also correct pageranges if they are incorrect to the number of pages" }
+    Procedure InitPageRanges Integer iLastPage
+        PRINTPAGERANGE[] PageRanges
+        Integer iPageRangeElements iPageRangeElement
+
+        Get pPageRanges to PageRanges
+        Move (SizeOfArray (PageRanges)) to iPageRangeElements
+        If (iPageRangeElements <= 1) Begin
+            Move 1 to PageRanges[0].nFromPage
+            Move iLastPage to PageRanges[0].nToPage
+        End
+        Else Begin
+            Decrement iPageRangeElements
+            For iPageRangeElement from 0 to iPageRangeElements
+                If (PageRanges[iPageRangeElement].nToPage > iLastPage) Begin
+                    Move iLastPage to PageRanges[iPageRangeElement].nToPage
+                End
+                If (PageRanges[iPageRangeElement].nFromPage > iLastPage) Begin
+                    Move iLastPage to PageRanges[iPageRangeElement].nFromPage
+                End
+                // Avoid that page 5-4 is put in the page ranges
+                If (PageRanges[iPageRangeElement].nFromPage > PageRanges[iPageRangeElement].nToPage) Begin
+                    Move PageRanges[iPageRangeElement].nToPage to PageRanges[iPageRangeElement].nFromPage
+                End
+            Loop
+        End
+        Set pPageRanges to PageRanges
+    End_Procedure
+
+    { Description = "Returns the window handle" }
+    Function OwnerHandle Returns Handle
+        Handle hoFocus hWnd
+
+        Get Focus of Desktop to hoFocus
+        If (hoFocus <> 0) Begin
+            Move (gOwnerWindowHandle (hoFocus)) to hWnd
+        End
+
+        If (hWnd = 0) Begin
+            Move (GetDesktopWindow()) to hWnd
+        End
+
+        Function_Return hWnd
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies whether collation should be used when printing multiple copies" }
+    { EnumList = "DMCOLLATE_FALSE, DMCOLLATE_TRUE" }
+    Procedure Set peCollate Short eCollate
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmCollate <> eCollate) Begin
+            Move eCollate to PrintDialogDevMode.dmCollate
+            Move True to PrintDialogDevMode.bCollateChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies whether collation should be used when printing multiple copies" }
+    Function peCollate Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmCollate
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Switches between color and monochrome on color printers." }
+    { EnumList = "DMCOLOR_MONOCHROME, DMCOLOR_COLOR" }
+    Procedure Set peColor Short eColor
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmColor <> eColor) Begin
+            Move eColor to PrintDialogDevMode.dmColor
+            Move True to PrintDialogDevMode.bColorChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Switches between color and monochrome on color printers." }
+    Function peColor Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmColor
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Selects the number of copies printed if the device supports multiple-page copies." }
+    Procedure Set piCopies Short iCopies
+        tPrintDialogDevModeData PrintDialogDevMode
+        Integer iFlags
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmCopies <> iCopies) Begin
+            Move iCopies to PrintDialogDevMode.dmCopies
+            Move True to PrintDialogDevMode.bCopiesChanged
+            Get piFlags to iFlags
+            If (IsFlagIn (PD_USEDEVMODECOPIES, iFlags)) Begin
+                Move True to PrintDialogDevMode.bChanged
+            End
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Selects the number of copies printed if the device supports multiple-page copies." }
+    Function piCopies Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmCopies
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the paper source. Use the PrinterDriverAnalyzer tool to retrieve a list of supported papersizes" }
+    { EnumList = "DMBIN_UPPER, DMBIN_ONLYONE, DMBIN_LOWER, DMBIN_MIDDLE, DMBIN_MANUAL, DMBIN_ENVELOPE" }
+    { EnumList += "DMBIN_ENVMANUAL, DMBIN_AUTO, DMBIN_TRACTOR, DMBIN_SMALLFMT, DMBIN_LARGEFMT" }
+    { EnumList += "DMBIN_LARGECAPACITY, DMBIN_CASSETTE, DMBIN_FORMSOURCE, DMBIN_USER" }
+    Procedure Set peDefaultSource Short eDefaultSource
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmDefaultSource <> eDefaultSource) Begin
+            Move eDefaultSource to PrintDialogDevMode.dmDefaultSource
+            Move True to PrintDialogDevMode.bDefaultSourceChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the paper source. Use the PrinterDriverAnalyzer tool to retrieve a list of supported papersizes" }
+    Function peDefaultSource Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmDefaultSource
+    End_Function
+
+    { MethodType = Property }
+    { Category = "DevNames" }
+    { Description = "Contains the name of the device" }
+    Procedure Set psDeviceName String sDeviceName
+        tPrintDialogDevNameData PrintDialogDevNames
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+        If (PrintDialogDevNames.sDeviceName <> sDeviceName) Begin
+            Move sDeviceName to PrintDialogDevNames.sDeviceName
+            Move True to PrintDialogDevNames.bDeviceNameChanged
+            Move True to PrintDialogDevNames.bChanged
+            Set private_pPrintDialogDevNames to PrintDialogDevNames
+            // Now the devmode structure, it may contain a part of the devicename as devmode structure only can hold 32 characters
+            Get private_pPrintDialogDevMode to PrintDialogDevMode
+            Move (Trim (Left (sDeviceName, CCHDEVICENAME))) to sDeviceName
+            If (sDeviceName <> PrintDialogDevMode.dmDeviceName) Begin
+                Move sDeviceName to PrintDialogDevMode.dmDeviceName
+                Move True to PrintDialogDevMode.bChanged
+                Move True to PrintDialogDevMode.bDeviceNameChanged
+                Set private_pPrintDialogDevMode to PrintDialogDevMode
+            End
+        End
+    End_Procedure
+
+    { MethodType = Property }
+    { Category = "DevNames" }
+    { Description = "Contains the name of the device" }
+    Function psDeviceName Returns String
+        tPrintDialogDevNameData PrintDialogDevNames
+
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+
+        Function_Return PrintDialogDevNames.sDeviceName
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies how dithering is to be done. The member can be one of the following predefined values, or a driver-defined value greater than or equal to the value of DMDITHER_USER." }
+    { EnumList = "DMDITHER_NONE, DMDITHER_COARSE, DMDITHER_FINE, DMDITHER_LINEART, DMDITHER_ERRORDIFFUSION, DMDITHER_RESERVED6" }
+    { EnumList += "DMDITHER_RESERVED7, DMDITHER_RESERVED8, DMDITHER_RESERVED9, DMDITHER_GRAYSCALE, DMDITHER_USER" }
+    Procedure Set peDitherType UInteger eDitherType
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmDitherType <> eDitherType) Begin
+            Move eDitherType to PrintDialogDevMode.dmDitherType
+            Move True to PrintDialogDevMode.bDitherTypeChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies how dithering is to be done. The member can be one of the following predefined values, or a driver-defined value greater than or equal to the value of DMDITHER_USER." }
+    Function peDitherType Returns UInteger
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmDitherType
+    End_Function
+
+    { MethodType = Property }
+    { Category = "DevNames" }
+    { Description = "The file name (without the extension) of the device driver" }
+    Procedure Set psDriverName String sDriverName
+        tPrintDialogDevNameData PrintDialogDevNames
+
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+        If (PrintDialogDevNames.sDriverName <> sDriverName) Begin
+            Move sDriverName to PrintDialogDevNames.sDriverName
+            Move True to PrintDialogDevNames.bDriverNameChanged
+            Move True to PrintDialogDevNames.bChanged
+            Set private_pPrintDialogDevNames to PrintDialogDevNames
+        End
+    End_Procedure
+
+    { MethodType = Property }
+    { Category = "DevNames" }
+    { Description = "The file name (without the extension) of the device driver" }
+    Function psDriverName Returns String
+        tPrintDialogDevNameData PrintDialogDevNames
+
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+
+        Function_Return PrintDialogDevNames.sDriverName
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Selects duplex or double-sided printing for printers capable of duplex printing" }
+    { EnumList = "DMDUP_SIMPLEX, DMDUP_HORIZONTAL, DMDUP_VERTICAL" }
+    Procedure Set peDuplex Short eDuplex
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmDuplex <> eDuplex) Begin
+            Move eDuplex to PrintDialogDevMode.dmDuplex
+            Move True to PrintDialogDevMode.bDuplexChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Selects duplex or double-sided printing for printers capable of duplex printing" }
+    Function peDuplex Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmDuplex
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the name of the form to use; for example, 'Letter' or 'Legal'" }
+    Procedure Set psFormName String sFormName
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (Left (PrintDialogDevMode.dmFormName, Length (sFormName)) <> sFormName) Begin
+            Move sFormName to PrintDialogDevMode.dmFormName
+            Move True to PrintDialogDevMode.bFormNameChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the name of the form to use; for example, 'Letter' or 'Legal'" }
+    Function psFormName Returns String
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmFormName
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies which color matching method, or intent, should be used by default. This member is primarily for non-ICM applications. ICM applications can establish intents by using the ICM functions. This member can be one of the following predefined values, or a driver defined value greater than or equal to the value of DMICM_USER." }
+    { EnumList = "DMICM_SATURATE, DMICM_CONTRAST, DMICM_COLORIMETRIC, DMICM_ABS_COLORIMETRIC, DMICM_USER" }
+    Procedure Set peICMIntent UInteger eICMIntent
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmICMIntent <> eICMIntent) Begin
+            Move eICMIntent to PrintDialogDevMode.dmICMIntent
+            Move True to PrintDialogDevMode.bICMIntentChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies which color matching method, or intent, should be used by default. This member is primarily for non-ICM applications. ICM applications can establish intents by using the ICM functions. This member can be one of the following predefined values, or a driver defined value greater than or equal to the value of DMICM_USER." }
+    Function peICMIntent Returns UInteger
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmICMIntent
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies how ICM is handled. For a non-ICM application, this member determines if ICM is enabled or disabled. For ICM applications, the system examines this member to determine how to handle ICM support. This member can be one of the following predefined values, or a driver-defined value greater than or equal to the value of DMICMMETHOD_USER." }
+    { EnumList = "DMICMMETHOD_NONE, DMICMMETHOD_SYSTEM, DMICMMETHOD_DRIVER, DMICMMETHOD_DEVICE, DMICMMETHOD_USER" }
+    Procedure Set peICMMethod UInteger eICMMethod
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmICMMethod <> eICMMethod) Begin
+            Move eICMMethod to PrintDialogDevMode.dmICMMethod
+            Move True to PrintDialogDevMode.bICMMethodChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies how ICM is handled. For a non-ICM application, this member determines if ICM is enabled or disabled. For ICM applications, the system examines this member to determine how to handle ICM support. This member can be one of the following predefined values, or a driver-defined value greater than or equal to the value of DMICMMETHOD_USER." }
+    Function peICMMethod Returns UInteger
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmICMMethod
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the type of media being printed on. The member can be one of the following predefined values, or a driver-defined value greater than or equal to the value of DMMEDIA_USER." }
+    { EnumList = "DMMEDIA_STANDARD, DMMEDIA_TRANSPARENCY, DMMEDIA_GLOSSY, DMMEDIA_USER" }
+    Procedure Set peMediaType UInteger eMediaType
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmMediaType <> eMediaType) Begin
+            Move eMediaType to PrintDialogDevMode.dmMediaType
+            Move True to PrintDialogDevMode.bMediaTypeChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the type of media being printed on. The member can be one of the following predefined values, or a driver-defined value greater than or equal to the value of DMMEDIA_USER." }
+    Function peMediaType Returns UInteger
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmMediaType
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies where the NUP is done. Multiple logical page per physical page options. NUP = N Up, as in 3-up labels etc" }
+    { EnumList = "DMNUP_SYSTEM, DMNUP_ONEUP" }
+    Procedure Set peNup UInteger eNup
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmNup <> eNup) Begin
+            Move eNup to PrintDialogDevMode.dmNup
+            Move True to PrintDialogDevMode.bNupChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies where the NUP is done. Multiple logical page per physical page options. NUP = N Up, as in 3-up labels etc" }
+    Function peNup Returns UInteger
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmNup
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Selects the orientation of the paper" }
+    { EnumList = "DMORIENT_PORTRAIT, DMORIENT_LANDSCAPE" }
+    Procedure Set peOrientation Short eOrientation
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmOrientation <> eOrientation) Begin
+            Move eOrientation to PrintDialogDevMode.dmOrientation
+            Move True to PrintDialogDevMode.bOrientationChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Returns the orientation of the paper" }
+    Function peOrientation Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmOrientation
+    End_Function
+
+    { MethodType = Property }
+    { Category = "DevNames" }
+    { Description = "Contains the device name for the physical output medium (output port)." }
+    Procedure Set psOutputName String sOutputName
+        tPrintDialogDevNameData PrintDialogDevNames
+
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+        If (PrintDialogDevNames.sOutputName <> sOutputName) Begin
+            Move sOutputName to PrintDialogDevNames.sOutputName
+            Move True to PrintDialogDevNames.bOutputNameChanged
+            Move True to PrintDialogDevNames.bChanged
+            Set private_pPrintDialogDevNames to PrintDialogDevNames
+        End
+    End_Procedure
+
+    { MethodType = Property }
+    { Category = "DevNames" }
+    { Description = "Contains the device name for the physical output medium (output port)." }
+    Function psOutputName Returns String
+        tPrintDialogDevNameData PrintDialogDevNames
+
+        Get private_pPrintDialogDevNames to PrintDialogDevNames
+
+        Function_Return PrintDialogDevNames.sOutputName
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Selects the size of the paper to print on." }
+    { Description += "This member can be set to zero if the length and width of the paper are both set by the dmPaperLength and dmPaperWidth members." }
+    { Description += "Otherwise, the dmPaperSize member can be set to a device specific value greater than or equal to DMPAPER_USER or to one of the following predefined values." }
+    { EnumList = "DMPAPER_LETTER, DMPAPER_LETTERSMALL, DMPAPER_TABLOID, DMPAPER_LEDGER, DMPAPER_LEGAL, DMPAPER_STATEMENT" }
+    { EnumList += "DMPAPER_EXECUTIVE, DMPAPER_A3, DMPAPER_A4, DMPAPER_A4SMALL, DMPAPER_A5, DMPAPER_B4, DMPAPER_B5, DMPAPER_FOLIO" }
+    { EnumList += "DMPAPER_QUARTO, DMPAPER_10X14, DMPAPER_11X17, DMPAPER_NOTE, DMPAPER_ENV_9, DMPAPER_ENV_10, DMPAPER_ENV_11" }
+    { EnumList += "DMPAPER_ENV_12, DMPAPER_ENV_14, DMPAPER_CSHEET, DMPAPER_DSHEET, DMPAPER_ESHEET, DMPAPER_ENV_DL, DMPAPER_ENV_C5" }
+    { EnumList += "DMPAPER_ENV_C3, DMPAPER_ENV_C4, DMPAPER_ENV_C6, DMPAPER_ENV_C65, DMPAPER_ENV_B4, DMPAPER_ENV_B5, DMPAPER_ENV_B6" }
+    { EnumList += "DMPAPER_ENV_ITALY, DMPAPER_ENV_MONARCH, DMPAPER_ENV_PERSONAL, DMPAPER_FANFOLD_US, DMPAPER_FANFOLD_STD_GERMAN" }
+    { EnumList += "DMPAPER_FANFOLD_LGL_GERMAN, DMPAPER_ISO_B4, DMPAPER_JAPANESE_POSTCARD, DMPAPER_9X11, DMPAPER_10X11, DMPAPER_15X11" }
+    { EnumList += "DMPAPER_ENV_INVITE, DMPAPER_RESERVED_48, DMPAPER_RESERVED_49, DMPAPER_LETTER_EXTRA, DMPAPER_LEGAL_EXTRA" }
+    { EnumList += "DMPAPER_TABLOID_EXTRA, DMPAPER_A4_EXTRA, DMPAPER_LETTER_TRANSVERSE, DMPAPER_A4_TRANSVERSE, DMPAPER_LETTER_EXTRA_TRANSVERSE" }
+    { EnumList += "DMPAPER_A_PLUS, DMPAPER_B_PLUS, DMPAPER_LETTER_PLUS, DMPAPER_A4_PLUS, DMPAPER_A5_TRANSVERSE, DMPAPER_B5_TRANSVERSE" }
+    { EnumList += "DMPAPER_A3_EXTRA, DMPAPER_A5_EXTRA, DMPAPER_B5_EXTRA, DMPAPER_A2, DMPAPER_A3_TRANSVERSE, DMPAPER_A3_EXTRA_TRANSVERSE" }
+    { EnumList += "DMPAPER_DBL_JAPANESE_POSTCARD, DMPAPER_A6, DMPAPER_JENV_KAKU2, DMPAPER_JENV_KAKU3, DMPAPER_JENV_CHOU3, DMPAPER_JENV_CHOU4" }
+    { EnumList += "DMPAPER_LETTER_ROTATED, DMPAPER_A3_ROTATED, DMPAPER_A4_ROTATED, DMPAPER_A5_ROTATED, DMPAPER_B4_JIS_ROTATED" }
+    { EnumList += "DMPAPER_B5_JIS_ROTATED, DMPAPER_JAPANESE_POSTCARD_ROTATED, DMPAPER_DBL_JAPANESE_POSTCARD_ROTATED" }
+    { EnumList += "DMPAPER_A6_ROTATED, DMPAPER_JENV_KAKU2_ROTATED, DMPAPER_JENV_KAKU3_ROTATED, DMPAPER_JENV_CHOU3_ROTATED" }
+    { EnumList += "DMPAPER_JENV_CHOU4_ROTATED, DMPAPER_B6_JIS, DMPAPER_B6_JIS_ROTATED, DMPAPER_12X11, DMPAPER_JENV_YOU4, DMPAPER_JENV_YOU4_ROTATED" }
+    { EnumList += "DMPAPER_P16K, DMPAPER_P32K, DMPAPER_P32KBIG, DMPAPER_PENV_1, DMPAPER_PENV_2, DMPAPER_PENV_3, DMPAPER_PENV_4" }
+    { EnumList += "DMPAPER_PENV_5, DMPAPER_PENV_6, DMPAPER_PENV_7, DMPAPER_PENV_8, DMPAPER_PENV_9, DMPAPER_PENV_10, DMPAPER_P16K_ROTATED" }
+    { EnumList += "DMPAPER_P32K_ROTATED, DMPAPER_P32KBIG_ROTATED, DMPAPER_PENV_1_ROTATED, DMPAPER_PENV_2_ROTATED, DMPAPER_PENV_3_ROTATED" }
+    { EnumList += "DMPAPER_PENV_4_ROTATED, DMPAPER_PENV_5_ROTATED, DMPAPER_PENV_6_ROTATED, DMPAPER_PENV_7_ROTATED, DMPAPER_PENV_8_ROTATED" }
+    { EnumList += "DMPAPER_PENV_9_ROTATED, DMPAPER_PENV_10_ROTATED, DMPAPER_USER" }
+    Procedure Set pePaperSize Short ePaperSize
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmPaperSize <> ePaperSize) Begin
+            Move ePaperSize to PrintDialogDevMode.dmPaperSize
+            Move True to PrintDialogDevMode.bPaperSizeChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Returns the size of the paper to print on." }
+    Function pePaperSize Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmPaperSize
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Can be used to override the pePaperSize setting. The value is in tenths of millimeter" }
+    Procedure Set piPaperLength Short iPaperLength
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmPaperLength <> iPaperLength) Begin
+            Move iPaperLength to PrintDialogDevMode.dmPaperLength
+            Move True to PrintDialogDevMode.bPaperLengthChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Can be used to override the pePaperSize setting. The value is in tenths of millimeter" }
+    Function piPaperLength Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmPaperLength
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Can be used to override the pePaperSize setting. The value is in tenths of millimeter" }
+    Procedure Set piPaperWidth Short iPaperWidth
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmPaperWidth <> iPaperWidth) Begin
+            Move iPaperWidth to PrintDialogDevMode.dmPaperWidth
+            Move True to PrintDialogDevMode.bPaperWidthChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Can be used to override the pePaperSize setting. The value is in tenths of millimeter" }
+    Function piPaperWidth Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmPaperWidth
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the printer resolution. There are four predefined device-independent values." }
+    { Description += "If a positive value is specified, it specifies the Number of dots per inch (DPI) and is therefore device dependent" }
+    { EnumList = "DMRES_DRAFT, DMRES_LOW, DMRES_MEDIUM, DMRES_HIGH" }
+    Procedure Set pePrintQuality Short ePrintQuality
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmPrintQuality <> ePrintQuality) Begin
+            Move ePrintQuality to PrintDialogDevMode.dmPrintQuality
+            Move True to PrintDialogDevMode.bPrintQualityChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the printer resolution. There are four predefined device-independent values." }
+    { Description += "If a positive value is specified, it specifies the Number of dots per inch (DPI) and is therefore device dependent" }
+    Function pePrintQuality Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmPrintQuality
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Factor by which the printed output is scaled. Factor is scale/100" }
+    Procedure Set piScale Short iScale
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmScale <> iScale) Begin
+            Move iScale to PrintDialogDevMode.dmScale
+            Move True to PrintDialogDevMode.bScaleChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Factor by which the printed output is scaled. Factor is scale/100" }
+    Function piScale Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmScale
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies how TrueType fonts should be printed" }
+    { EnumList = "DMTT_BITMAP, DMTT_DOWNLOAD, DMTT_SUBDEV, DMTT_DOWNLOAD_OUTLINE" }
+    Procedure Set peTTOption Short eTTOption
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmTTOption <> eTTOption) Begin
+            Move eTTOption to PrintDialogDevMode.dmTTOption
+            Move True to PrintDialogDevMode.bTTOptionChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies how TrueType fonts should be printed" }
+    Function peTTOption Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmTTOption
+    End_Function
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the y-resolution, in dots per inch, of the printer" }
+    Procedure Set piYResolution Short iYResolution
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        If (PrintDialogDevMode.dmYResolution <> iYResolution) Begin
+            Move iYResolution to PrintDialogDevMode.dmYResolution
+            Move True to PrintDialogDevMode.bYResolutionChanged
+            Move True to PrintDialogDevMode.bChanged
+            Set private_pPrintDialogDevMode to PrintDialogDevMode
+        End
+    End_Procedure
+
+    { Category = "DevMode" }
+    { MethodType = Property }
+    { Description = "Specifies the y-resolution, in dots per inch, of the printer" }
+    Function piYResolution Returns Short
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+
+        Function_Return PrintDialogDevMode.dmYResolution
+    End_Function
+
+    { Description = "Shows the print dialog" }
+    Function PrintDialog Returns Integer
+        Handle hDevMode hDevNames hPrintDlg hResult hPageRanges
+        Integer iResult iVoid
+        UInteger iFlags
+        PRINTDLGEXW pd
+        PRINTPAGERANGE[] PageRanges
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Move (SetLastError(0)) to iResult
+
+        Get phPrintDlg to hPrintDlg
+        If (hPrintDlg <> 0) Begin
+            Move (GlobalFree (hPrintDlg)) to iResult
+            Set phPrintDlg to 0
+        End
+
+        // Allocate memory for PRINTDLGEXW structure
+        Move (GlobalAlloc (GPTR, SizeOfType (PRINTDLGEXW))) to hPrintDlg
+        If (hPrintDlg = 0) Begin
+            Move (ShowLastError ()) to iResult
+            Function_Return PD_RESULT_CANCEL
+        End
+
+        Get piFlags to iFlags
+
+        // Return the printer device context
+        Move (iFlags ior PD_RETURNDC) to iFlags
+
+        // Copy the page ranges array information
+        If (not (IsFlagIn (PD_NOPAGENUMS, iFlags))) Begin
+            Send CopyPageRangeInfo (&pd)
+        End
+
+        // Filter unsupported flags
+        If (IsFlagIn (PD_ENABLEPRINTTEMPLATE, iFlags)) Begin
+            Move (iFlags - PD_ENABLEPRINTTEMPLATE) to iFlags
+        End
+        If (IsFlagIn (PD_ENABLEPRINTTEMPLATEHANDLE, iFlags)) Begin
+            Move (iFlags - PD_ENABLEPRINTTEMPLATEHANDLE) to iFlags
+        End
+        If (IsFlagIn (PD_USELARGETEMPLATE, iFlags)) Begin
+            Move (iFlags - PD_USELARGETEMPLATE) to iFlags
+        End
+
+        // If the PD_RETURNDEFAULT flag is set the hDevMode and hDevNames must be zero
+        If (IsFlagIn (PD_RETURNDEFAULT, iFlags)) Begin
+            Move 0 to hDevMode
+            Move 0 to hDevNames
+        End
+        Else Begin
+            Get private_pPrintDialogDevMode to PrintDialogDevMode
+            If (IsFlagIn (PD_USEDEVMODECOPIES, iFlags) or (not (PrintDialogDevMode.bChanged))) Begin
+                Move 0 to hDevNames
+                Move 0 to hDevMode
+            End
+            Else Begin
+                Get InitDevMode to hDevMode
+                If (hDevMode = -1) Begin
+                    Function_Return PD_RESULT_CANCEL
+                End
+                Get InitDevNames to hDevNames
+                If (hDevNames = -1) Begin
+                    Function_Return PD_RESULT_CANCEL
+                End
+            End
+        End
+
+        Move (SizeOfType (PRINTDLGEXW)) to pd.lStructSize
+        Get OwnerHandle to pd.hwndOwner
+        Move hDevMode to pd.hDevMode
+        Move hDevNames to pd.hDevNames
+        Move iFlags to pd.Flags
+        Get piMinPage to pd.nMinPage
+        Get piMaxPage to pd.nMaxPage
+        Get piCopies to pd.nCopies
+        Move START_PAGE_GENERAL to pd.nStartPage
+
+        // Copy the PRINTDLGEX structure
+        Move (CopyMemory (hPrintDlg, AddressOf (pd), SizeOfType (PRINTDLGEXW))) to iVoid
+
+        // Call the printdlgex function, this may open a dialog
+        Move (PrintDlgEx (hPrintDlg)) to hResult
+        If (hResult = S_OK) Begin
+            Set phPrintDlg to hPrintDlg
+
+            Move (CopyMemory (AddressOf (pd), hPrintDlg, SizeOfType (PRINTDLGEXW))) to iVoid
+
+            Set piFlags to pd.Flags
+            Set piMinPage to pd.nMinPage
+            Set piMaxPage to pd.nMaxPage
+            Set piCopies to pd.nCopies
+            If (not (IsFlagIn (PD_NOPAGENUMS, pd.Flags))) Begin
+                Set piMaxPageRanges to pd.nMaxPageRanges
+                If (pd.lpPageRanges <> 0) Begin
+                    Move (ResizeArray (PageRanges, pd.nPageRanges)) to PageRanges
+                    Move (CopyMemory (AddressOf (PageRanges), pd.lpPageRanges, pd.nPageRanges * SizeOfType (PRINTPAGERANGE))) to iVoid
+                    Set pPageRanges to PageRanges
+                End
+            End
+            Set phDC to pd.hDC
+            Set phDevMode to pd.hDevMode
+            Set phDevNames to pd.hDevNames
+
+            If (pd.hDevnames <> 0) Begin
+                Send ReadDevNames
+            End
+            If (pd.hDevMode <> 0) Begin
+                Send ReadDevMode
+            End
+
+            If (IsFlagIn (PD_RETURNDEFAULT, pd.Flags)) Begin
+                Function_Return PD_RESULT_PRINT
+            End
+
+            Function_Return pd.dwResultAction
+        End
+        Else Begin
+            If (hResult = E_INVALIDARG) Begin
+                Move (ShowLastError ()) to iResult
+            End
+            Function_Return hResult
+        End
+    End_Function
+
+    { Description = "Reads the information from the passed DEVMODE structure and set this in the wrapped DEVMODE property" }
+    { Description += "Does not set the changed state of individual properties or the overall changed state" }
+    Procedure ReadDevModeData DEVMODEW dm
+        String sDeviceName sFormName
+
+        Get ShortArrayToString dm.dmDeviceName CCHDEVICENAME to sDeviceName
+        Set psDeviceName to sDeviceName
+
+        If (dm.dmFields iand DM_ORIENTATION) Begin
+            Set peOrientation to dm.dmOrientation
+        End
+
+        If (dm.dmFields iand DM_PAPERSIZE) Begin
+            Set pePaperSize to dm.dmPaperSize
+        End
+
+        If (dm.dmFields iand DM_PAPERLENGTH) Begin
+            Set piPaperLength to dm.dmPaperLength
+        End
+
+        If (dm.dmFields iand DM_PAPERWIDTH) Begin
+            Set piPaperWidth to dm.dmPaperWidth
+        End
+
+        If (dm.dmFields iand DM_SCALE) Begin
+            Set piScale to dm.dmScale
+        End
+
+        If (dm.dmFields iand DM_COPIES) Begin
+            Set piCopies to dm.dmCopies
+        End
+
+        If (dm.dmFields iand DM_DEFAULTSOURCE) Begin
+            Set peDefaultSource to dm.dmDefaultSource
+        End
+
+        If (dm.dmFields iand DM_PRINTQUALITY) Begin
+            Set pePrintQuality to dm.dmPrintQuality
+        End
+
+        If (dm.dmFields iand DM_COLOR) Begin
+            Set peColor to dm.dmColor
+        End
+
+        If (dm.dmFields iand DM_DUPLEX) Begin
+            Set peDuplex to dm.dmDuplex
+        End
+
+        If (dm.dmFields iand DM_YRESOLUTION) Begin
+            Set piYResolution to dm.dmYResolution
+        End
+
+        If (dm.dmFields iand DM_TTOPTION) Begin
+            Set peTTOption to dm.dmTTOption
+        End
+
+        If (dm.dmFields iand DM_COLLATE) Begin
+            Set peCollate to dm.dmCollate
+        End
+
+        If (dm.dmFields iand DM_FORMNAME) Begin
+            Get ShortArrayToString dm.dmFormName CCHFORMNAME to sFormName
+            Set psFormName to sFormName
+        End
+
+        If (dm.dmFields iand DM_ICMMETHOD) Begin
+            Set peICMMethod to dm.dmICMMethod
+        End
+
+        If (dm.dmFields iand DM_ICMINTENT) Begin
+            Set peICMIntent to dm.dmICMIntent
+        End
+
+        If (dm.dmFields iand DM_MEDIATYPE) Begin
+            Set peMediaType to dm.dmMediaType
+        End
+
+        If (dm.dmFields iand DM_DITHERTYPE) Begin
+            Set peDitherType to dm.dmDitherType
+        End
+
+        If (dm.dmFields iand DM_NUP) Begin
+            Set peNup to dm.dmNup
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Takes the current devmode handle and returns the stored information by setting the wrapped devmode property" }
+    Procedure ReadDevMode
+        Integer iResult
+        Handle hDevMode
+        Pointer pDevMode
+        DEVMODEW dm
+
+        Get phDevMode to hDevMode
+        If (hDevMode = 0) Begin
+            Procedure_Return
+        End
+
+        // Lock allocated memory
+        Move (GlobalLock (hDevmode)) to pDevMode
+        If (pDevmode = 0) Begin
+            Procedure_Return
+        End
+
+        // Copy the information from the memory pointer
+        Move (CopyMemory (AddressOf (dm), pDevMode, SizeOfType (DEVMODEW))) to iResult
+
+        // Copy the devmode data to properties of the cPrintDialog object
+        Send ReadDevModeData dm
+
+        // Unlock the memory
+        Move (GlobalUnlock (hDevMode)) to iResult
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Takes the current devnames handle and returns the stored information by setting the wrapped devnames property" }
+    Procedure ReadDevNames
+        Integer iResult iVoid
+        Handle hDevNames
+        Pointer pDevNames pData
+        DEVNAMES dn
+        WString wName
+
+        Get phDevNames to hDevNames
+        If (hDevNames = 0) Begin
+            Procedure_Return
+        End
+
+        // Lock memory
+        Move (GlobalLock (hDevNames)) to pDevNames
+        If (pDevNames = 0) Begin
+            Procedure_Return
+        End
+
+        // Copy the the devnames structure, devnames structure only contains the pointers to the names
+        Move (CopyMemory (AddressOf (dn), pDevNames, SizeOfType (DEVNAMES))) to iVoid
+
+        // Copy the drivername from the memory pointer to the DataFlex property
+        If (dn.wDriverOffset > 0) Begin
+            Move (pDevNames + (dn.wDriverOffset * 2)) to pData // wDriverOffset is in code units
+            Move (PointerToWString (pData)) to wName
+            Set psDriverName to wName
+        End
+
+        // Copy the devicename from the memory pointer to the DataFlex property
+        If (dn.wDeviceOffset > 0) Begin
+            Move (pDevNames + (dn.wDeviceOffset * 2)) to pData
+            Move (PointerToWString (pData)) to wName
+            Set psDeviceName to wName
+        End
+
+        // Copy the outputname from the memory pointer to the DataFlex property
+        If (dn.wOutputOffset > 0) Begin
+            Move (pDevNames + (dn.wOutputOffset * 2)) to pData
+            Move (PointerToWString (pData)) to wName
+            Set psOutputName to wName
+        End
+
+        Set pbDefaultPrinterSelected to (IsFlagIn (DN_DEFAULTPRN, dn.wDefault))
+
+        // Unlock memory
+        Move (GlobalUnlock (hDevNames)) to iResult
+    End_Procedure
+
+    { MethodType = Method }
+    { Description = "Attempts to open the printer information for the printer with the passed name and reads the info" }
+    Function ReadPrinterDevMode String sPrinterName Returns Integer
+        Boolean bPrinterDataRead
+
+        Get DRPrinterDevMode sPrinterName to bPrinterDataRead
+        If (not (bPrinterDataRead)) Begin
+            Set psDeviceName to ''
+            Function_Return PD_RESULT_CANCEL
+        End
+
+        Function_Return PD_RESULT_PRINT
+    End_Function
+
+    { Description = "Call this routine to reset the changed state of all devmode members and the overall state" }
+    Procedure ResetDevModeChanged
+        tPrintDialogDevModeData PrintDialogDevMode
+
+        Get private_pPrintDialogDevMode to PrintDialogDevMode
+        Move False to PrintDialogDevMode.bChanged
+        Move False to PrintDialogDevMode.bDeviceNameChanged
+        Move False to PrintDialogDevMode.bSpecVersionChanged
+        Move False to PrintDialogDevMode.bDriverVersionChanged
+        Move False to PrintDialogDevMode.bOrientationChanged
+        Move False to PrintDialogDevMode.bPaperSizeChanged
+        Move False to PrintDialogDevMode.bPaperLengthChanged
+        Move False to PrintDialogDevMode.bPaperWidthChanged
+        Move False to PrintDialogDevMode.bScaleChanged
+        Move False to PrintDialogDevMode.bCopiesChanged
+        Move False to PrintDialogDevMode.bDefaultSourceChanged
+        Move False to PrintDialogDevMode.bPrintQualityChanged
+        Move False to PrintDialogDevMode.bColorChanged
+        Move False to PrintDialogDevMode.bDuplexChanged
+        Move False to PrintDialogDevMode.bYResolutionChanged
+        Move False to PrintDialogDevMode.bTTOptionChanged
+        Move False to PrintDialogDevMode.bCollateChanged
+        Move False to PrintDialogDevMode.bFormNameChanged
+        Move False to PrintDialogDevMode.bNupChanged
+        Move False to PrintDialogDevMode.bICMMethodChanged
+        Move False to PrintDialogDevMode.bICMIntentChanged
+        Move False to PrintDialogDevMode.bMediaTypeChanged
+        Move False to PrintDialogDevMode.bDitherTypeChanged
+        Set private_pPrintDialogDevMode to PrintDialogDevMode
+    End_Procedure
+
+    { Description = "Call this routine to reset the changed state of all devname members and the overall state" }
+    Procedure ResetDevNameChanged
+        tPrintDialogDevNameData PrintDialogDevName
+
+        Get private_pPrintDialogDevNames to PrintDialogDevName
+        Move False to PrintDialogDevName.bChanged
+        Move False to PrintDialogDevName.bDeviceNameChanged
+        Move False to PrintDialogDevName.bDriverNameChanged
+        Move False to PrintDialogDevName.bOutputNameChanged
+        Set private_pPrintDialogDevNames to PrintDialogDevName
+    End_Procedure
+
+    { MethodType = Method }
+    { Description = "Takes the information needed for devmode and devnames and construct the printdlg information from this" }
+    Function SelectPrinter Returns Boolean
+        Handle hDevMode hDevNames hPrintDlg
+        Integer iResult iVoid iMaxPageRanges
+        UInteger iFlags
+        String sDeviceName
+        PRINTDLGEXW pd
+        PRINTPAGERANGE[] PageRanges
+
+        // Free previously allocated memory
+        Send FreeAllocatedGlobalMemory
+
+        Get InitDevNames to hDevNames
+        If (hDevNames = -1) Begin
+            Function_Return PD_RESULT_CANCEL
+        End
+
+        Get InitDevMode to hDevMode
+        If (hDevMode = -1) Begin
+            Function_Return PD_RESULT_CANCEL
+        End
+
+        Get psDeviceName to sDeviceName
+        If (sDeviceName = '') Begin
+            Function_Return PD_RESULT_CANCEL
+        End
+
+        // Allocate memory for PRINTDLGEXW structure
+        Move (GlobalAlloc (GPTR, SizeOfType (PRINTDLGEXW))) to hPrintDlg
+        If (hPrintDlg = 0) Begin
+            Move (ShowLastError ()) to iResult
+            Function_Return False
+        End
+
+        Get piFlags to iFlags
+
+        // Return the printer device context
+        Move (iFlags ior PD_RETURNDC) to iFlags
+
+        // Filter unsupported flags
+        If (IsFlagIn (PD_ENABLEPRINTTEMPLATE, iFlags)) Begin
+            Move (iFlags - PD_ENABLEPRINTTEMPLATE) to iFlags
+        End
+        If (IsFlagIn (PD_ENABLEPRINTTEMPLATEHANDLE, iFlags)) Begin
+            Move (iFlags - PD_ENABLEPRINTTEMPLATEHANDLE) to iFlags
+        End
+        If (IsFlagIn (PD_USELARGETEMPLATE, iFlags)) Begin
+            Move (iFlags - PD_USELARGETEMPLATE) to iFlags
+        End
+
+        // Copy the page ranges array information
+        If (not (IsFlagIn (PD_NOPAGENUMS, pd.Flags))) Begin
+            Send CopyPageRangeInfo (&pd)
+        End
+
+        Move (SizeOfType (PRINTDLGEXW)) to pd.lStructSize
+        Get OwnerHandle to pd.hwndOwner
+        Move hDevMode to pd.hDevMode
+        Move hDevNames to pd.hDevNames
+        Move iFlags to pd.Flags
+        Get piMinPage to pd.nMinPage
+        Get piMaxPage to pd.nMaxPage
+        Get piCopies to pd.nCopies
+        Move START_PAGE_GENERAL to pd.nStartPage
+
+        Move (CopyMemory (hPrintDlg, AddressOf (pd), SizeOfType (PRINTDLGEXW))) to iVoid
+        Set phPrintDlg to hPrintDlg
+
+        Function_Return PD_RESULT_PRINT
+    End_Function
+
+    { Description = "Convert a short array to a string" }
+    { Visibility = Private }
+    Function ShortArrayToString Short[] siChars Integer iLength Returns String
+        String sResult
+
+        Move (PointerToWString (AddressOf (siChars))) to sResult
+        If (SizeOfString (sResult) < iLength) Begin
+            Move (sResult + ZeroString (iLength - SizeOfString (sResult))) to sResult
+        End
+
+        Function_Return sResult
+    End_Function
+
+    { Description = "Convert a string to a fixed length char array" }
+    { Visibility = Private }
+    Function StringToShortArray String sValue Integer iLength Returns Short[]
+        WString wValue
+        Short[iLength] siValues
+        Integer iResult
+
+        Move (Left (sValue, iLength)) to sValue
+        Move sValue to wValue
+        Move (CopyMemory (AddressOf (siValues), AddressOf (wValue), SizeOfWString (wValue) * 2)) to iResult
+
+        Function_Return siValues
+    End_Function
+End_Class

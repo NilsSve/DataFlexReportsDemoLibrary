@@ -1,0 +1,505 @@
+﻿Use Windows.pkg
+Use DRLanguage.Inc
+Use cDRPreviewCommandBarSystem.pkg
+Use cDRMenuItem.pkg
+Use cDRZoomMenuItem.pkg
+Use cDRCurrentPageMenuItem.pkg
+Use cDRExportMenuItem.pkg
+Use cDRPrintMenuItem.pkg
+Use cDRFirstPageMenuItem.pkg
+Use cDRPreviousPageMenuItem.pkg
+Use cDRNextPageMenuItem.pkg
+Use cDRLastPageMenuItem.pkg
+Use cDRRefreshMenuItem.pkg
+Use cDRReport.pkg
+Use DRExportOptions.dg
+Use cDRPreviewWindow.pkg
+Use cDRSearchPreviewMenuItem.pkg
+Use cDRSearchInPreviewOptionsGroupMenuItem.pkg
+Use cDRSearchPreviewOptionsMenuItem.pkg
+Use cDRGroupTree.pkg
+Use cSplitterContainer.pkg
+Use cDRGroupTreeLocationMenuItem.pkg
+Use cDRGroupTreeMenuItem.pkg
+Use cDRZoomInMenuItem.pkg
+Use cDRZoomOutMenuItem.pkg
+
+{ ClassLibrary = Windows }
+Class cDRToolPanelPreview is a ToolPanel
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        { DesignTime = False }
+        { InitialValue = 0 }
+        { Description = "Will be used to store the object id of the cDRReport" }
+        Property Handle phoReport
+        { DesignTime = False }
+        { InitialValue = 0 }
+        { Description = "Will be used to store the object id of the Previewer Object" }
+        Property Handle phoDRPreviewer
+        { DesignTime = False }
+        { InitialValue = 0 }
+        { Description = "Will be used to store the object id of the grouptree Object" }
+        Property Handle phoGroupTree
+        { DesignTime = False }
+        { Description = "Will be used to store the report peGroupTreeLocation upon opening for reset" }
+        Property Handle peReportGroupTreeLocation
+
+        Set Size to 273 448
+        Set Icon to "DR.Ico"
+        Set Name to "oDRToolPanelPreview"
+
+        // Used to wrap the splittercontainer so that it can be resized correctly
+        // based on the commandbars of this view
+        Object oClientContainer is a Container3d
+        End_Object
+
+        Object oCommandBars is a cDRPreviewCommandBarSystem
+            Set pbAutoResizeIcons to True
+
+            Object oDRToolBar is a cCJToolbar
+                Set pbCloseable to False
+                Set pbEnableDocking to False
+                Set pbGripper to False
+                Set peStretched to stStretch
+                Set pbDockNextTo to False
+                Set pbHideWrap to True
+                Set pbCustomizable to False
+
+                Object oFirstPage is a cDRFirstPageMenuItem
+                End_Object
+
+                Object oPreviousPage is a cDRPreviousPageMenuItem
+                End_Object
+
+                Object oCurrentPage is a cDRCurrentPageMenuItem
+                End_Object
+
+                Object oNextPage is a cDRNextPageMenuItem
+                End_Object
+
+                Object oLastPage is a cDRLastPageMenuItem
+                End_Object
+
+                Object oRefresh is a cDRRefreshMenuItem
+                End_Object
+
+                Object oGroupTree is a cDRGroupTreeMenuItem
+                    Object oNoGroupTreeMenuItem is a cDRGroupTreeLocationMenuItem
+                        Set psCaption to C_$DRGroupTreeNone
+                    End_Object
+
+                    Object oGroupTreeLeftMenuItem is a cDRGroupTreeLocationMenuItem
+                        Set psCaption to C_$DRGroupTreeLeft
+                        Set peGroupTreeLocation to C_DR_GROUPTREE_LEFT
+                    End_Object
+
+                    Object oGroupTreeRightMenuItem is a cDRGroupTreeLocationMenuItem
+                        Set psCaption to C_$DRGroupTreeRight
+                        Set peGroupTreeLocation to C_DR_GROUPTREE_RIGHT
+                    End_Object
+                End_Object
+
+                Object oPrint is a cDRPrintMenuItem
+                End_Object
+
+                Object oZoom is a cDRZoomMenuItem
+                End_Object
+
+                Object oZoomOut is a cDRZoomOutMenuItem
+                End_Object
+
+                Object oZoomIn is a cDRZoomInMenuItem
+                End_Object
+
+                Object oExport is a cDRExportMenuItem
+                    Set phoExportOptionsDialog to (oDRExportOptionsDialog)
+                End_Object
+
+                Object oSearchInPreview is a cDRSearchPreviewMenuItem
+                End_Object
+
+                Object oSearchInPreviewOptions is a cDRSearchInPreviewOptionsGroupMenuItem
+                    Object oDownMenuItem is a cDRSearchPreviewOptionsMenuItem
+                        Set psCaption to C_$DRSearchInPreviewDown
+                        Set phmSearchOptionGet to (RefFunc (pbDown))
+                        Set phmSearchOptionSet to (RefProcSet (pbDown))
+                        Set phoSearchMenuItem to oSearchInPreview
+                    End_Object
+
+                    Object oWholeWordMenuItem is a cDRSearchPreviewOptionsMenuItem
+                        Set psCaption to C_$DRSearchInPreviewWholeWord
+                        Set phmSearchOptionGet to (RefFunc (pbWholeWord))
+                        Set phmSearchOptionSet to (RefProcSet (pbWholeWord))
+                        Set phoSearchMenuItem to oSearchInPreview
+                    End_Object
+
+                    Object oMatchCaseMenuItem is a cDRSearchPreviewOptionsMenuItem
+                        Set psCaption to C_$DRSearchInPreviewMatchCase
+                        Set phmSearchOptionGet to (RefFunc (pbMatchCase))
+                        Set phmSearchOptionSet to (RefProcSet (pbMatchCase))
+                        Set phoSearchMenuItem to oSearchInPreview
+                    End_Object
+                End_Object
+            End_Object
+        End_Object
+
+        On_Key kClose_Panel Send Close_Panel
+        On_Key Key_Escape Send Close_Panel
+    End_Procedure
+
+    { Description = "Send from the cDRPreviewWindow on pressing the F3 key" }
+    { Visibility = Private }
+    Procedure SearchNext
+        Handle hoReport
+        Boolean bPreviewerShowSearchInPreview
+        
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Get pbPreviewerShowSearchInPreview of hoReport to bPreviewerShowSearchInPreview
+            If (bPreviewerShowSearchInPreview) Begin
+                Send Execute of (oSearchInPreview (oDRToolBar (oCommandBars)))
+            End
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure OnResizeCommandBars Integer iLeft Integer iTop Integer iRight Integer iBottom
+        Integer iSize iPos
+
+        Get GuiToDialog (iBottom - iTop) (iRight - iLeft) to iSize
+        Get GuiToDialog iTop iLeft to iPos
+
+        Set Size of oClientContainer to (Hi (iSize)) (Low (iSize))
+        Set Location of oClientContainer to (Hi (iPos)) (Low (iPos))
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure RefreshGroupTree
+        Handle hoGroupTree
+
+        Get phoGroupTree to hoGroupTree
+        If (hoGroupTree <> 0) Begin
+            Send BuildGroupTree of hoGroupTree
+        End
+    End_Procedure
+
+    // Same method can be used by preview view or toolpanel
+    { Visibility = Private }
+    Procedure Activate_View
+        Send Activate
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure AssignPreviewHWND
+        Handle hoDRPreviewer hWnd hoReport
+        String sReportId
+
+        Get phoDRPreviewer to hoDRPreviewer
+        Get Window_Handle of hoDRPreviewer to hWnd
+        If (hWnd <> 0) Begin
+            Get phoReport to hoReport
+            If (hoReport <> 0) Begin
+                Set PreviewWindowHandle of hoReport to hWnd
+            End
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewClick Longptr wParam Longptr lParam
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewClick of hoReport wParam lParam
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewNextPage
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewNextPage of hoReport
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewPreviousPage
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewPreviousPage of hoReport
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewFirstPage
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewFirstPage of hoReport
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewLastPage
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewLastPage of hoReport
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewPaint
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewPaint of hoReport
+        End
+    End_Procedure
+
+    { MethodType = Property }
+    { Visibility = Private }
+    Function piPreviewZoom Returns Integer
+        Handle hoReport
+        Integer iFactor
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Get piPreviewZoom of hoReport to iFactor
+            Function_Return iFactor
+        End
+    End_Function
+
+    { MethodType = Property }
+    { Visibility = Private }
+    Procedure Set piPreviewZoom Integer iFactor
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Set piPreviewZoom of hoReport to iFactor
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewVScroll Integer iType Integer iPos
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewVScroll of hoReport iType iPos
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure PreviewHScroll Integer iType Integer iPos
+        Handle hoReport
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send PreviewHScroll of hoReport iType iPos
+        End
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnPageChanged Integer iPage
+        Set psText of (oCurrentPage (oDRToolBar (oCommandBars))) to (String (iPage))
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnZoomChanged Integer iFactor
+        Set psText of (oZoom (oDRToolBar (oCommandBars))) to (String (iFactor) + "%")
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Read the peGroupTreeLocation of the report and store it in the previewer to be able to reset on closing previewer" }
+    Procedure ReadGroupTreeLocation
+        Handle hoReport
+        Integer eGroupTreeLocation
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Get peGroupTreeLocation of hoReport to eGroupTreeLocation
+            Set peReportGroupTreeLocation to eGroupTreeLocation
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Restore the peGroupTreeLocation of the passed report object to what it was on activation" }
+    Procedure RestoreGroupTreeLocation Handle hoReport
+        Integer eGroupTreeLocation
+
+        Get peReportGroupTreeLocation to eGroupTreeLocation
+        Set peGroupTreeLocation of hoReport to eGroupTreeLocation
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure Add_Focus Handle hoParent Returns Integer
+        Forward Send Add_Focus hoParent
+
+        Send AdjustPanelSize
+        Send ReadGroupTreeLocation
+        Send HandleGroupTreeStatus
+        Send UpdateViewer
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure AdjustPanelSize
+        Handle hoMain hWnd hoClient
+        Integer iLocation iPanelSize
+
+        Get Main_Window to hoMain
+        Send Adjust_Logicals of hoMain
+
+        Set Location to 0 0
+        Get Size of hoMain to iPanelSize
+        Get Window_Handle of hoMain to hWnd
+        If (DR_WinAPI_IsZoomed (hWnd)) Begin
+            Set Size to (Hi (iPanelSize) - 75) (Low (iPanelSize) - 75)
+        End
+        Else Begin
+            Set Size to (Hi (iPanelSize)) (Low (iPanelSize))
+        End
+
+        Get Location of hoMain to iLocation
+        Set Location to (Hi (iLocation) + 25) (Low (iLocation) + 25)
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure UpdateToolbar Handle hoReport
+        String sReportId
+        Integer iPageMaxCombo iPages
+
+        Get psReportId of hoReport to sReportId
+        If (sReportId <> "") Begin
+            Get piPageMaxCombo of hoReport to iPageMaxCombo
+            If (iPageMaxCombo > -1) Begin
+                Get ReportPageCount of hoReport to iPages
+                If (iPages > iPageMaxCombo) Begin
+                    Send ChangeControlClass of (oCurrentPage (oDRToolBar (oCommandBars))) xtpControlEdit
+                End
+                Else Begin
+                    Send ChangeControlClass of (oCurrentPage (oDRToolBar (oCommandBars))) xtpControlComboBox
+                    Send AddPages of (oCurrentPage (oDRToolBar (oCommandBars)))
+                End
+            End
+            Send DisplayCurrentZoomFactor of (oZoom (oDRToolBar (oCommandBars)))
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure UpdateViewer
+        Handle hoReport hoClient hWnd
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send OnShowPreviewer of hoReport
+            Send UpdateToolbar hoReport
+            Send RefreshGroupTree
+        End
+
+        Send AssignPreviewHWND
+
+        Get Client_Id to hoClient
+        If (hoClient <> 0) Begin
+            Get Window_Handle of hoClient to hWnd
+            If (hWnd <> 0) Begin
+                Move (UpdateWindow (hWnd)) to hWnd
+            End
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure HandleGroupTreeStatus
+        Handle hoReport hoClientContainer hoDRPreviewer hoSplitterContainer hoLeftContainer hoGroupTree hoRightContainer
+        Integer eGroupTreeLocation iLeft iTop iRight iBottom iSize iPos
+
+        Get phoReport to hoReport
+        If (hoReport <> 0) Begin
+            Send ComGetClientRect of oCommandBars (&iLeft) (&iTop) (&iRight) (&iBottom)
+            Get GuiToDialog (iBottom - iTop) (iRight - iLeft) to iSize
+            Get GuiToDialog iTop iLeft to iPos
+            Get Object_Id of oClientContainer to hoClientContainer
+            Broadcast Recursive_Up Send Deactivate of hoClientContainer 0
+            Broadcast Recursive_Up Send Destroy of hoClientContainer
+            Broadcast Recursive Set pbAnchorCreated to False
+            Set Size of hoClientContainer to (Hi (iSize)) (Low (iSize))
+            Set Location of hoClientContainer to (Hi (iPos)) 0
+            Get peGroupTreeLocation of hoReport to eGroupTreeLocation
+            Case Begin
+                Case (eGroupTreeLocation = C_DR_GROUPTREE_NONE)
+                    Get CreateNamed of hoClientContainer (RefClass (cDRPreviewWindow)) "oDRPreviewer" to hoDRPreviewer
+                    Set Size of hoDRPreviewer to 260 602
+                    Set Location of hoDRPreviewer to 21 5
+                    Set peAnchors of hoDRPreviewer to anAll
+                    Set Location of hoDRPreviewer to 5 5
+                    Set Size of hoDRPreviewer to (Hi (iSize) - 10) (Low (iSize) - 10)
+                    Send Add_Focus of hoDRPreviewer hoClientContainer
+                    Case Break
+                Case (eGroupTreeLocation = C_DR_GROUPTREE_LEFT)
+                    Get CreateNamed of hoClientContainer (RefClass (cSplitterContainer)) "oSplitterContainer" to hoSplitterContainer
+                    Get CreateNamed of hoSplitterContainer (RefClass (cSplitterContainerChild)) "oLeftContainer" to hoLeftContainer
+                    Get CreateNamed of hoLeftContainer (RefClass (cDRGroupTree)) "oGroupTree" to hoGroupTree
+                    Set peAnchors of hoGroupTree to anAll
+                    Set Location of hoGroupTree to 0 0
+                    Get CreateNamed of hoSplitterContainer (RefClass (cSplitterContainerChild)) "oRightContainer" to hoRightContainer
+                    Get CreateNamed of hoRightContainer (RefClass (cDRPreviewWindow)) "oDRPreviewer" to hoDRPreviewer
+                    Set peAnchors of hoDRPreviewer to anAll
+                    Set Location of hoDRPreviewer to 0 0
+                    Set piSplitterLocation of hoSplitterContainer to (Low (iPos) + 100)
+                    Send Add_Focus of hoSplitterContainer hoClientContainer
+                    Get GuiSize of hoRightContainer to iSize
+                    Set GuiSize of hoDRPreviewer to (Hi (iSize)) (Low (iSize))
+                    Get GuiSize of hoLeftContainer to iSize
+                    Set GuiSize of hoGroupTree to (Hi (iSize)) (Low (iSize))
+                    Case Break
+                Case (eGroupTreeLocation = C_DR_GROUPTREE_RIGHT)
+                    Get CreateNamed of hoClientContainer (RefClass (cSplitterContainer)) "oSplitterContainer" to hoSplitterContainer
+                    Get CreateNamed of hoSplitterContainer (RefClass (cSplitterContainerChild)) "oLeftContainer" to hoLeftContainer
+                    Get CreateNamed of hoLeftContainer (RefClass (cDRPreviewWindow)) "oDRPreviewer" to hoDRPreviewer
+                    Set peAnchors of hoDRPreviewer to anAll
+                    Set Location of hoDRPreviewer to 0 0
+                    Get CreateNamed of hoSplitterContainer (RefClass (cSplitterContainerChild)) "oRightContainer" to hoRightContainer
+                    Get CreateNamed of hoRightContainer (RefClass (cDRGroupTree)) "oGroupTree" to hoGroupTree
+                    Set peAnchors of hoGroupTree to anAll
+                    Set Location of hoGroupTree to 0 0
+                    Set piSplitterLocation of hoSplitterContainer to (Low (iSize) - 110)
+                    Send Add_Focus of hoSplitterContainer hoClientContainer
+                    Get GuiSize of hoLeftContainer to iSize
+                    Set GuiSize of hoDRPreviewer to (Hi (iSize)) (Low (iSize))
+                    Get GuiSize of hoRightContainer to iSize
+                    Set GuiSize of hoGroupTree to (Hi (iSize)) (Low (iSize))
+                    Case Break
+            Case End
+            Set phoDRPreviewer to hoDRPreviewer
+            Set phoGroupTree to hoGroupTree
+            Broadcast Recursive Send DoCreateAnchors
+            Send Activate of hoDRPreviewer
+        End
+    End_Procedure
+
+    { Description = "Close the report when it the dialog is closed. Destroy the dialog." }
+    { Visibility = Private }
+    Procedure Close_Panel
+        Handle hoReport
+
+        Get phoReport to hoReport
+        Get Object_Id of hoReport to hoReport // Check if this is still a valid handle
+        If (hoReport <> 0) Begin
+            Send RestoreGroupTreeLocation hoReport
+            Send OnClosePreviewer of hoReport
+            Send CancelReport of hoReport
+            Set PreviewWindowHandle of hoReport to 0 // reset
+        End
+
+        Forward Send Close_Panel
+    End_Procedure
+End_Class

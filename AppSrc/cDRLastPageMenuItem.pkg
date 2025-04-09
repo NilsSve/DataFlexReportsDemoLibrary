@@ -1,0 +1,44 @@
+Use cDRMenuItem.pkg
+Use DRLanguage.Inc
+
+{ ClassLibrary = Windows }
+Class cDRLastPageMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psCaption to C_$DRLastPage
+        Set psToolTip to C_$DRGoToTheLastPage
+        Set psDescription to C_$DRJumpsToTheLastPageOfTheReport
+        Set psShortcut to C_$DRCtrlEndShortCut
+        Set psImage to "DRLastPage.ico"
+    End_Procedure
+    
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowLastPageButton = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowLastPageButton
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowLastPageButton of hoReport to bPreviewerShowLastPageButton
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+        
+        Function_Return bPreviewerShowLastPageButton
+    End_Function
+    
+    Procedure OnExecute Variant vCommandBarControl
+        Handle hoReport
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Send PreviewLastPage of hoReport
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+    End_Procedure
+End_Class

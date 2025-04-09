@@ -1,0 +1,32 @@
+Use cDRMenuItem.pkg
+
+{ ClassLibrary = Windows }
+Class cDRSearchInPreviewOptionsGroupMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Set peControlType to xtpControlSplitButtonPopup
+        Set psCaption to C_$DRSearchInPreviewOptions
+        Set psTooltip to C_$DRSearchInPreviewOptionsTooltip
+        Set peControlStyle to xtpButtonIconAndCaption
+        Set psImage to "DRFind.Ico"
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowSearchInPreviewOptions or pbPreviewerShowSearchInPreview = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowSearchInPreview bPreviewerShowSearchInPreviewOptions
+
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowSearchInPreview of hoReport to bPreviewerShowSearchInPreview
+            Get pbPreviewerShowSearchInPreviewOptions of hoReport to bPreviewerShowSearchInPreviewOptions
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportObject
+        End
+
+        Function_Return (bPreviewerShowSearchInPreviewOptions and bPreviewerShowSearchInPreview)
+    End_Function
+End_Class

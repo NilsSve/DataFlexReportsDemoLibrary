@@ -1,0 +1,68 @@
+Use cCJCommandBarSystem.pkg
+
+{ ClassType = Abstract }
+{ ClassLibrary = Windows }
+Class cDRMenuItem is a cCJMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Property Handle phoReport -1
+    End_Procedure
+
+    { Visibility = Private }
+    Function ToInteger String sValue Returns Integer
+        Integer iLength iPos
+        String sChar sOutput
+
+        Move (Length (sValue)) to iLength
+        For iPos from 1 to iLength
+            Move (Mid (sValue, 1, iPos)) to sChar
+            If ("0123456789" contains sChar) Begin
+                Move (sOutput + sChar) to sOutput
+            End
+        Loop
+
+        Function_Return sOutput
+    End_Function
+
+    Function ReportObject Returns Handle
+        Handle hoReport hoParent
+
+        Get phoReport to hoReport
+        If (hoReport = -1) Begin
+            Get Parent to hoParent
+            While (hoReport = -1 and hoParent > Desktop)
+                Get phoReport of hoParent to hoReport
+                Get Parent of hoParent to hoParent
+            Loop
+        End
+        // Check if the object stored in the variable still exists
+        Get Object_Id of hoReport to hoReport
+
+        Function_Return hoReport
+    End_Function
+
+    { MethodType = Event }
+    Function IsEnabled Returns Boolean
+        Handle hoReport
+        String sReportId
+
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get psReportId of hoReport to sReportId
+            Function_Return (sReportId <> "")
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportObject
+        End
+
+        Function_Return False
+    End_Function
+
+    { Visibility = Private }
+    { Description = "Update is only called when pbActiveUpdate is set to true. The IsNNN functions (like IsVisible) are therefore not called" }
+    Procedure OnCreateControl Handle hoObj
+        Forward Send OnCreateControl hoObj
+        Send Update
+    End_Procedure
+End_Class

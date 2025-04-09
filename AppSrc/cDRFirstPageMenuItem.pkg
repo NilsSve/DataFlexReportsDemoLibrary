@@ -1,0 +1,44 @@
+Use cDRMenuItem.pkg
+Use DRLanguage.Inc
+
+{ ClassLibrary = Windows }
+Class cDRFirstPageMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psCaption to C_$DRFirstPage
+        Set psToolTip to C_$DRGoToTheFirstPage
+        Set psDescription to C_$DRJumpsToTheFirstPageOfTheReport
+        Set psShortcut to C_$DRCtrlHomeShortCut
+        Set psImage to "DRFirstPage.ico"
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowFirstPageButton = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowFirstPageButton
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowFirstPageButton of hoReport to bPreviewerShowFirstPageButton
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+        
+        Function_Return bPreviewerShowFirstPageButton
+    End_Function
+    
+    Procedure OnExecute Variant vCommandBarControl
+        Handle hoReport
+        
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Send PreviewFirstPage of hoReport
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+    End_Procedure
+End_Class

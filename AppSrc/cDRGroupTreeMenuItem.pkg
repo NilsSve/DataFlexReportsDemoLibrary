@@ -1,0 +1,57 @@
+Use cDRMenuItem.pkg
+
+Class cDRGroupTreeMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psCaption to C_$DRGroupTree
+        Set psToolTip to C_$DRChangeGroupTreeOption
+        Set psImage to "PanePreview.Ico"
+        Set peControlType to xtpControlSplitButtonPopup
+        Set peControlStyle to xtpButtonIcon
+        Set pbControlBeginGroup to True
+    End_Procedure
+    
+    Procedure OnExecute Variant vCommandBarControl
+        Handle hoReport
+        Integer eGroupTreeLocation
+        
+        Get ReportObject to hoReport
+        If (hoReport <> 0) Begin
+            Get peGroupTreeLocation of hoReport to eGroupTreeLocation
+            Case Begin
+                Case (eGroupTreeLocation = C_DR_GROUPTREE_NONE)
+                    Set peGroupTreeLocation of hoReport to C_DR_GROUPTREE_LEFT
+                    Case Break
+                Case (eGroupTreeLocation = C_DR_GROUPTREE_LEFT)
+                    Set peGroupTreeLocation of hoReport to C_DR_GROUPTREE_RIGHT
+                    Case Break
+                Case (eGroupTreeLocation = C_DR_GROUPTREE_RIGHT)
+                    Set peGroupTreeLocation of hoReport to C_DR_GROUPTREE_NONE
+                    Case Break
+            Case End
+            Send HandleGroupTreeStatus
+            Send UpdateViewer            
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportObject
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowGroupTreeOptions = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowGroupTreeOptions
+
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowGroupTreeOptions of hoReport to bPreviewerShowGroupTreeOptions
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportObject
+        End
+
+        Function_Return bPreviewerShowGroupTreeOptions
+    End_Function    
+End_Class

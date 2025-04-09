@@ -1,0 +1,63 @@
+Use cDRMenuItem.pkg
+Use DRLanguage.Inc
+
+{ ClassLibrary = Windows }
+Class cDRZoomInMenuItem is a cDRMenuItem
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Set psImage to "Zoom in.ico"
+        Set psToolTip to C_$DRZoomIn
+    End_Procedure
+
+    { Visibility = Private }
+    { Description = "Hides the control when pbPreviewerShowZoomOptions = false." }
+    Function IsVisible Returns Boolean
+        Handle hoReport
+        Boolean bPreviewerShowZoomOptions
+
+        Get ReportObject to hoReport
+        If (hoReport > 0) Begin
+            Get pbPreviewerShowZoomOptions of hoReport to bPreviewerShowZoomOptions
+        End
+        Else Begin
+            Error DFERR_DATAFLEX_REPORTS C_$DRNoReportIdSpecified
+        End
+
+        Function_Return bPreviewerShowZoomOptions
+    End_Function
+
+    Procedure OnExecute Variant vCommandBarControl
+        Integer iZoomFactor
+        Handle hoReport
+
+        Get ReportObject to hoReport
+        Get piPreviewZoom of hoReport to iZoomFactor
+        Case Begin
+            Case (iZoomFactor < 25)
+                Set piPreviewZoom of hoReport to 25
+                Case Break
+            Case (iZoomFactor >= 25 and iZoomFactor < 50)
+                Set piPreviewZoom of hoReport to 50
+                Case Break
+            Case (iZoomFactor >= 50 and iZoomFactor < 75)
+                Set piPreviewZoom of hoReport to 75
+                Case Break
+            Case (iZoomFactor >= 75 and iZoomFactor < 100)
+                Set piPreviewZoom of hoReport to 100
+                Case Break
+            Case (iZoomFactor >= 100 and iZoomFactor < 200)
+                Set piPreviewZoom of hoReport to 200
+                Case Break
+            Case (iZoomFactor >= 200 and iZoomFactor < 300)
+                Set piPreviewZoom of hoReport to 300
+                Case Break
+            Case (iZoomFactor >= 300 and iZoomFactor < 400)
+                Set piPreviewZoom of hoReport to 400
+                Case Break
+            Case (iZoomFactor >= 400 and iZoomFactor < 500)
+                Set piPreviewZoom of hoReport to 500
+                Case Break
+        Case End
+    End_Procedure
+End_Class
